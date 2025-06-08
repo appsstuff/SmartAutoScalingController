@@ -1,0 +1,10 @@
+model/
+live_data/
+venv_tf/
+models/
+__pycache__/
+models/
+
+*.pkl
+*.hs
+models

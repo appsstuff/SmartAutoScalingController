@@ -1,0 +1,9 @@
+smart-autoscaler/
+│
+├── config.py              # Namespace, deployment name, limits
+├── autoscaler_controller.py   # Main controller loop
+├── model_inference.py     # Hybrid prediction logic
+├── utils.py               # Helper functions
+├── Dockerfile             # For containerization
+├── requirements.txt       # Python deps
+└── cronjob.yaml           # K8s deployment

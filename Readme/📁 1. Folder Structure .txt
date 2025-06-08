@@ -1,0 +1,18 @@
+smart-autoscaler/
+│
+├── config_loader.py         # Load settings from env vars
+├── model_inference.py      # Hybrid prediction engine
+├── autoscaler_controller.py # Main loop (simulate K8s scaling)
+├── utils.py                # Metric fetching, sequence creation
+├── retrain_models.py       # Retrains models using collected data
+│
+├── models/                 # Saved models
+│   ├── gpr_model_adservice.pkl
+│   ├── xgb_model_adservice.json
+│   ├── lstm_model_adservice.h5
+│   └── scaler_adservice.pkl
+│
+├── live_data/              # Logs for online learning
+│   └── adservice_live_data.csv
+│
+└── requirements.txt        # Python dependencies

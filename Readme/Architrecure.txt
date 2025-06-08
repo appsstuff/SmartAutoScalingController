@@ -1,0 +1,19 @@
++-------------------+         +-----------------------+
+| Prometheus Server |<------->| Metric Fetcher (Python)|
++-------------------+         +-----------------------+
+                                     |
+                          +----------v-----------+
+                          | Hybrid Policy Engine  |
+                          | (GPR + XGBoost + LSTM) |
+                          +----------+-----------+
+                                     |
+                     +---------------v------------------+
+                     | Kubernetes API / GKE               |
+                     | → Scale deployment/replicas        |
+                     | → Monitor namespaces/deployments   |
+                     +---------------+------------------+
+                                     |
+                        +------------v-------------+
+                        | autoscaler_controller.py     |
+                        | Main class: predict_scaling_action() |
+                        +----------------------------+

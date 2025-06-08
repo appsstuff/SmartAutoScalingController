@@ -1,0 +1,19 @@
+Prometheus/VictoriaMetrics
+        |
+        v
+    fetch_pod_metrics()
+        |
+        v
+build_feature_vector() → seq_input
+        |
+        v
+predict_scaling_action() → "scale_up", "no_change", "scale_down"
+        |
+        v
+apply_k8s_scaling()
+        |
+        v
+record_live_data()
+        |
+        v
+retrain_models.py

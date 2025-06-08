@@ -1,0 +1,12 @@
+adservice
+cartservice
+checkoutservice
+currencyservice
+emailservice
+frontend
+loadgenerator
+paymentservice
+productcatalogservice
+recommendationservice
+redis-cart
+shippingservice

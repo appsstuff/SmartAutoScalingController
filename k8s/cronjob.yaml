@@ -1,0 +1,260 @@
+# Deploys your autoscaler as a scheduled CronJob in Kubernetes.
+    # Schedules autoscaler to run every minute
+    # Sets environment variables for deployment
+    # Uses your custom Docker image
+    # Safe restart policy and pull strategy
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler
+spec:
+  schedule: "*/1 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+              volumeMounts:
+                - name: autoscaler-data
+                  mountPath: /data
+          volumes:
+            - name: autoscaler-data
+              persistentVolumeClaim:
+                claimName: autoscaler-data
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-cartservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-cartservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-checkoutservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-checkoutservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-currencyservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-currencyservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-emailservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-emailservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-frontend
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-frontend
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-loadgenerator
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-loadgenerator
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-paymentservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-paymentservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-productcatalogservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-productcatalogservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-recommendationservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-recommendationservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-redis-cart
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-redis-cart
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: smart-autoscaler-shippingservice
+spec:
+  schedule: "*/1 * * * *"  # Every minute
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: autoscaler
+              image: your-docker-hub/smart-autoscaler:latest
+              envFrom:
+                - configMapRef:
+                    name: smart-autoscaler-global-config
+                - configMapRef:
+                    name: autoscaler-config-shippingservice
+          imagePullPolicy: IfNotPresent
+          restartPolicy: OnFailure          

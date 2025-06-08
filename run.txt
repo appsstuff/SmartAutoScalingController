@@ -1,0 +1,7 @@
+loop = asyncio.get_event_loop()
+async def run_all_services():
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_pod_metrics_async(session, svc["pod_name"], svc["namespace"]) for svc in AUTO_SCALE_SERVICES]
+        return await asyncio.gather(*tasks)
+
+raw_metrics_list = loop.run_until_complete(run_all_services())

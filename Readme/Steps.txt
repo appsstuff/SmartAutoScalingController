@@ -1,0 +1,49 @@
+🐳 How to Deploy to Kubernetes
+docker build -t your-docker-hub/smart-autoscaler:latest .
+docker push your-docker-hub/smart-autoscaler:latest
+
+kubectl apply -f cronjob_adservice.yaml
+kubectl apply -f cronjob_paymentservice.yaml
+kubectl apply -f cronjob.yaml
+kubectl apply -f ......
+kubectl apply -f cronjob.yaml
+kubectl apply -f cronjob_multiservice.yaml
+
+apply ConfigMap autoscaler-config-adservice.yaml
+apply ConfigMap autoscaler-config-adservice.yaml
+kubectl apply -f pvc.yaml
+
+
+python autoscaler_controller_multi.py
+
+## Run locally
+export TARGET_DEPLOYMENT=cartservice
+export NAMESPACE=default
+export MIN_REPLICAS=2
+export MAX_REPLICAS=8
+export SCALING_STEP=1
+export SEQ_LENGTH=10
+export FEATURE_NAMES="hour_of_day,cpu_usage_lag_1,cpu_roll_mean_10,mem_usage,req_rate"
+
+python retrain_models.py
+################################
+
+🔄 How to Use This in Production
+🔁 Replace simulated metrics with real ones:
+Example Prometheus query:
+
+def query_prometheus(query):
+    PROMETHEUS_URL = "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query"
+    response = requests.get(PROMETHEUS_URL, params={'query': query})
+    if response.status_code == 200:
+        results = response.json()['data']['result']
+        if results:
+            return float(results[0]['value'][1])
+    return 0.0
+
+#####
+Then replace:
+    current_cpu = np.random.uniform(0.1, 0.9)
+### With:
+    cpu_query = f'container_cpu_usage_seconds_total{{namespace="{NAMESPACE}", container_name="{TARGET_DEPLOYMENT}"}}'
+    current_cpu = query_prometheus(cpu_query)
