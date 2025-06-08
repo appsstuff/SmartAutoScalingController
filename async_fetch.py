@@ -2,7 +2,7 @@ import asyncio
 import aiohttp
 import numpy as np
 from async_utils import fetch_pod_metrics_async
-from shared_config import AUTO_SCALE_SERVICES
+from pod_config import AUTO_SCALE_SERVICES
 
 
 async def run_all_services():

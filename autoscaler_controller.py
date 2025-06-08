@@ -2,7 +2,7 @@ import time
 import os
 from datetime import datetime, timedelta
 import numpy as np
-from config_multi import AUTO_SCALE_SERVICES
+from pod_config import AUTO_SCALE_SERVICES
 from k8s_scaler import apply_k8s_scaling
 from model_inference import predict_scaling_action
 from utils import (

@@ -1,6 +1,6 @@
 import asyncio
 from prometheus_api_client import PrometheusConnect
-from shared_config import AUTO_SCALE_SERVICES
+from pod_config import AUTO_SCALE_SERVICES
 
 async def fetch_service_metrics(pod_name: str, namespace: str) -> dict:
     # TODO: Implement actual Prometheus metrics fetching

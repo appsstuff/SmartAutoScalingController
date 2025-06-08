@@ -18,7 +18,7 @@ async def async_query_vm(session: aiohttp.ClientSession, query):
         print(f" Async VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
-async def fetch_pod_metrics_async(session: aiohttp.ClientSession, pod_name="adservice", namespace="default"):
+async def fetch_pod_metrics_async(session: aiohttp.ClientSession, pod_name, namespace="default"):
     """
     Fetch live metrics asynchronously
     """

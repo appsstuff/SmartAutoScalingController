@@ -1,5 +1,4 @@
 # config_multi.py
-
 AUTO_SCALE_SERVICES = [
     {
         "pod_name": "adservice",

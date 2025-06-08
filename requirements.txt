@@ -5,10 +5,15 @@ xgboost
 tensorflow
 kubernetes
 requests
-tensorflow-macos==2.12.0      # For Apple Silicon
-tensorflow-metal==0.8.0      # For Apple Silicon acceleration
+tensorflow==2.12.0     # For Apple Silicon
 matplotlib
 seaborn
 joblib
 tqdm
 aiohttp
+asyncio
+kubernetes
+joblib
+sklearn
+matplotlib
+seaborn

@@ -7,7 +7,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.models import load_model, save_model, Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
-from config_multi import AUTO_SCALE_SERVICES
+from pod_config import AUTO_SCALE_SERVICES
 
 ENABLE_RETRAINING = os.getenv("ENABLE_RETRAINING", "false").lower() == "true"
 

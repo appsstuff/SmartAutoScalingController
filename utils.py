@@ -38,9 +38,10 @@ def query_vm(query):
         print(f"⚠️ VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
-def fetch_pod_metrics(pod_name="adservice", namespace="default"):
+def fetch_pod_metrics(pod_name, namespace="default"):
     """
     Fetch live metrics from VictoriaMetrics (no recursion)
+    Works for any pod_name and namespace
     """
     return {
         "hour_of_day": datetime.now().hour,

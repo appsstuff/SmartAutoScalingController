@@ -17,7 +17,6 @@ kubectl apply -f cronjob.yaml
 kubectl apply -f cronjob_multiservice.yaml
 
 apply ConfigMap autoscaler-config-adservice.yaml
-apply ConfigMap autoscaler-config-adservice.yaml
 kubectl apply -f pvc.yaml
 
 
