@@ -81,7 +81,7 @@ class ModelTrainer:
 if __name__ == "__main__":
     
     if ENABLE_RETRAINING:
-        print("🚀 Starting bulk model retraining...")
+        print(" Starting bulk model retraining...")
         for svc in AUTO_SCALE_SERVICES:
             trainer = ModelTrainer(svc)
             trainer.train_all()

@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta
 import numpy as np
 from config_multi import AUTO_SCALE_SERVICES
+from k8s_scaler import apply_k8s_scaling
 from model_inference import predict_scaling_action
 from utils import (
     fetch_pod_metrics,
@@ -73,7 +74,7 @@ else:
 
                     # Step 6: Log for retraining
                     record_live_data(pod_name, raw_metrics, decision)
-
+                    apply_k8s_scaling(pod_name, namespace, decision)
                 except KeyError as ke:
                     print(f" Invalid config: missing '{ke}'")
                 except Exception as e:
