@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-autoscaler
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-autoscaler
+  template:
+    metadata:
+      labels:
+        app: smart-autoscaler
+    spec:
+      containers:
+        - name: autoscaler
+          image: gcr.io/your-gcp-project/autoscaling-controller:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: smart-autoscaler-global-config
+          env:
+            - name: TARGET_DEPLOYMENT
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['target']
+          volumeMounts:
+            - name: autoscaler-models
+              mountPath: /app/models
+            - name: autoscaler-data
+              mountPath: /data
+      volumes:
+        - name: autoscaler-models
+          persistentVolumeClaim:
+            claimName: autoscaler-models-pvc
+        - name: autoscaler-data
+          persistentVolumeClaim:
+            claimName: autoscaler-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-autoscaler-service
+  namespace: default
+spec:
+  selector:
+    app: smart-autoscaler
+  ports:
+    - protocol: TCP
+      port: 8900
+      targetPort: 8900
+  type: ClusterIP            

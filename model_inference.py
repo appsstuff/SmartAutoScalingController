@@ -41,4 +41,31 @@ def predict_scaling_action(input_row, seq_input):
                           np.where(lstm_pred.mean() < threshold_down, 2, 1))
 
     final_class = int(np.round((gpr_class[0] + xgb_pred + lstm_class) / 3))
-    return target_names[final_class]
+    final_decision = fuse_predictions(gpr_class, xgb_pred, lstm_class)
+
+    return target_names[final_decision]
+
+
+def fuse_predictions(gpr_pred, xgb_pred, lstm_pred):
+    """
+    Combines predictions from GPR, XGB, and LSTM models
+    Returns: final_decision (str)
+    """
+    decision_map = {0: "scale_down", 1: "no_change", 2: "scale_up"}
+    votes = [gpr_pred, xgb_pred, lstm_pred]
+    
+    # Count occurrences
+    vote_counts = {i: votes.count(i) for i in set(votes)}
+    majority = [k for k, v in vote_counts.items() if v == max(vote_counts.values())]
+
+    if len(majority) == 1:
+        final = majority[0]
+    else:
+        # Tie: use model priority fallback
+        priority = [gpr_pred, xgb_pred, lstm_pred]
+        for model_vote in priority:
+            if model_vote in majority:
+                final = model_vote
+                break
+
+    return decision_map[final]

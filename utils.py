@@ -5,7 +5,7 @@ import joblib
 import requests
 from datetime import datetime, timedelta
 
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/query")
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus.yassein.com/query/api/v1/query")
 STEP_SECONDS = int(os.getenv("STEP_SECONDS", "60"))
 HISTORY_FILE = "/data/history.pkl"
 
@@ -17,8 +17,15 @@ def load_history():
     return {}
 
 def save_history(history):
-    joblib.dump(history, HISTORY_FILE)
-    print(f"💾 History saved to {HISTORY_FILE}")
+    """
+    Save history to disk for future use
+    """
+    try:
+        os.makedirs("/data", exist_ok=True)  # Double-check
+        joblib.dump(history, HISTORY_FILE)
+        print(f"💾 History saved to {HISTORY_FILE}")
+    except Exception as e:
+        print(f"❌ Failed to save history: {e}")
 
 def query_vm(query):
     try:
@@ -92,3 +99,69 @@ def predict_scaling_action(input_row, sequence):
     elif cpu_usage < 0.2:
         return 'scale_down'
     return 'no_change'
+
+def validate_service_config(svc):
+    """Validate service dict has required keys"""
+    if "pod_name" not in svc:
+        raise KeyError("Missing 'pod_name'")
+    if "feature_names" not in svc:
+        raise KeyError("Missing 'feature_names'")
+    if "seq_length" not in svc:
+        raise KeyError("Missing 'seq_length'")
+    
+    
+def fetch_historical_data(pod_name, namespace, days=10):
+    """
+    Query last N days of CPU usage from VictoriaMetrics or Prometheus
+    Returns list of raw values or synthetic if none found
+    """
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=days)
+    
+    start = int(start_time.timestamp())
+    end = int(end_time.timestamp())
+
+    query = f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'
+    params = {
+        'query': query,
+        'start': start,
+        'end': end,
+        'step': STEP_SECONDS
+    }
+
+    try:
+        response = requests.get(PROMETHEUS_URL, params=params, timeout=5)
+        if response.status_code == 200:
+            values = response.json().get('data', {}).get('result', [{}])[0].get('values', [])
+            return [float(v[1]) for v in values]
+    except Exception as e:
+        print(f" Historical fetch failed: {e}")
+
+    # Fallback to simulated history if VM unreachable
+    print("🧪 Using simulated history (no Prometheus/VictoriaMetrics data)")
+    return [np.random.uniform(0.1, 0.9) for _ in range(seq_length)]
+    """
+    Query last N days of CPU usage from VictoriaMetrics or Prometheus
+    Returns list of raw values
+    """
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=days)
+    
+    # Convert to Unix timestamp
+    start = int(start_time.timestamp())
+    end = int(end_time.timestamp())
+
+    query = f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'
+    params = {
+        'query': query,
+        'start': start,
+        'end': end,
+        'step': STEP_SECONDS
+    }
+
+    response = requests.get(PROMETHEUS_URL, params=params, timeout=5)
+    if response.status_code == 200:
+        values = response.json().get('data', {}).get('result', [{}])[0].get('values', [])
+        return [float(v[1]) for v in values]
+    print(f" Historical query failed for {pod_name}")
+    return []    

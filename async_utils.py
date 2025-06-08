@@ -3,10 +3,12 @@ import aiohttp
 from datetime import datetime
 import numpy as np
 
+# http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/query
+
 async def async_query_vm(session: aiohttp.ClientSession, query):
     """Async PromQL query"""
     try:
-        async with session.get("http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/query", params={'query': query}, ssl=False) as response:
+        async with session.get("http://prometheus.yassein.com/query/api/v1/query", params={'query': query}, ssl=False) as response:
             if response.status == 200:
                 json_data = await response.json()
                 result = json_data.get('data', {}).get('result', [])
