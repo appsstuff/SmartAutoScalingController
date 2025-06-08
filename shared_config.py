@@ -1,16 +1,4 @@
-adservice
-cartservice
-checkoutservice
-currencyservice
-emailservice
-frontend
-loadgenerator
-paymentservice
-productcatalogservice
-recommendationservice
-redis-cart
-shippingservice
-
+AUTO_SCALE_SERVICES = [
     {"pod_name": "adservice", "namespace": "default"},
     {"pod_name": "cartservice", "namespace": "default"},
     {"pod_name": "checkoutservice", "namespace": "default"},
@@ -22,3 +10,4 @@ shippingservice
     {"pod_name": "recommendationservice", "namespace": "default"},
     {"pod_name": "redis-cart", "namespace": "default"},
     {"pod_name": "shippingservice", "namespace": "default"}
+]

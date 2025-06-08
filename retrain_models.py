@@ -1,84 +1,87 @@
 import os
+import pandas as pd
 import numpy as np
+import joblib
 from xgboost import XGBClassifier
 from sklearn.gaussian_process import GaussianProcessRegressor
-from tensorflow.keras.models import load_model, save_model
-from utils import fetch_pod_metrics, build_feature_vector, create_sequence
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.models import load_model, save_model, Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 from config_multi import AUTO_SCALE_SERVICES
 
-print("🔄 Starting bulk model retraining process")
+ENABLE_RETRAINING = os.getenv("ENABLE_RETRAINING", "false").lower() == "true"
 
-def collect_live_data(svc_config):
-    """
-    Collects recent metrics from VictoriaMetrics instead of CSV
-    Returns synthetic training data for retraining
-    """
-    pod_name = svc_config["pod_name"]
-    namespace = svc_config.get("namespace", "default")
-    feature_names = svc_config.get("feature_names", [])
-    seq_length = svc_config.get("seq_length", 10)
+class ModelTrainer:
+    def __init__(self, service_config):
+        self.pod_name = service_config["pod_name"]
+        self.namespace = service_config.get("namespace", "default")
+        self.seq_length = service_config.get("seq_length", 10)
+        self.model_dir = "models"
+        os.makedirs(self.model_dir, exist_ok=True)
 
-    print(f"🔄 Fetching live data for {pod_name}")
-    raw_metrics = fetch_pod_metrics(pod_name, namespace)
-    input_row = build_feature_vector(raw_metrics, feature_names)
+    def load_data(self):
+        path = f"/data/live_data/{self.pod_name}_live_data.csv"
+        if not os.path.exists(path):
+            print(f"[WARN] No data found for {self.pod_name}")
+            return None, None
 
-    # Simulate label generation using hybrid logic
-    decision = predict_scaling_action(input_row, create_sequence(input_row, seq_length))
-    y_new = {"scale_down": 0, "no_change": 1, "scale_up": 2}[decision]
-    return np.array([input_row]), np.array([y_new])
+        df = pd.read_csv(path)
+        feature_columns = [
+            "hour_of_day", "day_of_week", "cpu_usage_lag_1", "cpu_usage_lag_5",
+            "cpu_roll_mean_10", "mem_usage", "req_rate"
+        ]
+        X = df[feature_columns].values
+        y = df["decision"].map({"scale_down": 0, "no_change": 1, "scale_up": 2}).values
+        return X, y
 
-def retrain_for_service(svc_config, index):
-    """
-    Retrain all models for one service using live metrics
-    """
-    if "pod_name" not in svc_config:
-        print(f" Skipping service #{index}: missing 'pod_name'")
-        return
-
-    pod_name = svc_config["pod_name"]
-    namespace = svc_config.get("namespace", "default")
-    feature_names = svc_config.get("feature_names", [])
-    seq_length = svc_config.get("seq_length", 10)
-
-    try:
-        # Load pod-specific models
-        gpr = joblib.load(f"models/gpr_model_{pod_name}.pkl")
-        clf = XGBClassifier()
-        clf.load_model(f"models/xgb_model_{pod_name}.json")
-        model_lstm = load_model(f"models/lstm_model_{pod_name}.h5")
-        scaler = joblib.load(f"models/scaler_{pod_name}.pkl")
-
-        # Get live data
-        X_new, y_new = collect_live_data(svc_config)
-        if X_new is None or y_new is None:
-            print(f"❌ No valid data for {pod_name}")
+    def train_all(self):
+        X, y = self.load_data()
+        if X is None or len(X) < 50:
+            print(f"[INFO] Skipping {self.pod_name}: not enough data")
             return
 
-        # Scale new data
-        X_scaled = scaler.transform(X_new)
+        self.train_scaler(X)
+        self.train_gpr(X, y)
+        self.train_xgb(X, y)
+        self.train_lstm(X, y)
+        print(f"[DONE] Retraining completed for {self.pod_name}")
 
-        # Retrain GPR
-        print(f"🧠 Retraining GPR for {pod_name}")
-        gpr.fit(X_scaled, y_new)
-        joblib.dump(gpr, f"models/gpr_model_{pod_name}.pkl")
+    def train_scaler(self, X):
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        joblib.dump(scaler, os.path.join(self.model_dir, f"scaler_model_{self.pod_name}.pkl"))
+        self.X_scaled = X_scaled
 
-        # Retrain XGBoost
-        print(f"🌲 Retraining XGBoost for {pod_name}")
-        clf.fit(X_scaled, y_new)
-        clf.save_model(f"models/xgb_model_{pod_name}.json")
+    def train_gpr(self, X, y):
+        gpr = GaussianProcessRegressor()
+        gpr.fit(self.X_scaled, y)
+        joblib.dump(gpr, os.path.join(self.model_dir, f"gpr_model_{self.pod_name}.pkl"))
 
-        # Retrain LSTM
-        from utils import create_sequence
-        print(f"🧠 Retraining LSTM for {pod_name}")
-        seq_input = create_sequence(X_scaled, seq_length)
-        model_lstm.fit(seq_input, y_new, epochs=5, batch_size=32, verbose=0)
-        model_lstm.save(f"models/lstm_model_{pod_name}.h5")
+    def train_xgb(self, X, y):
+        clf = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+        clf.fit(self.X_scaled, y)
+        clf.save_model(os.path.join(self.model_dir, f"xgb_model_{self.pod_name}.json"))
 
-        print(f"✅ Models updated for {pod_name}")
+    def train_lstm(self, X, y):
+        X_seq = self.X_scaled.reshape((self.X_scaled.shape[0], self.X_scaled.shape[1], 1))
+        y_seq = y[:X_seq.shape[0]]
 
-    except Exception as e:
-        print(f"❌ Failed to retrain for {pod_name}: {e}")
+        model = Sequential()
+        model.add(LSTM(64, input_shape=(X_seq.shape[1], 1), return_sequences=False))
+        model.add(Dropout(0.3))
+        model.add(Dense(32, activation='relu'))
+        model.add(Dense(1, activation='sigmoid'))
 
+        model.compile(optimizer='adam', loss='binary_crossentropy')
+        model.fit(X_seq, y_seq, epochs=5, batch_size=16, verbose=0)
+
+        model.save(os.path.join(self.model_dir, f"lstm_model_{self.pod_name}.h5"))
+
+# Entry point for retraining all services
 if __name__ == "__main__":
-    for idx, svc in enumerate(AUTO_SCALE_SERVICES):
-        retrain_for_service(svc, idx)
+    
+    if ENABLE_RETRAINING:
+        print("🚀 Starting bulk model retraining...")
+        for svc in AUTO_SCALE_SERVICES:
+            trainer = ModelTrainer(svc)
+            trainer.train_all()

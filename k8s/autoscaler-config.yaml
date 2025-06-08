@@ -7,6 +7,7 @@ data:
   PROMETHEUS_URL: "http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/query"
   CHECK_INTERVAL_SECONDS: "60"
   RETRAIN_INTERVAL_MINUTES: "1440"  # Daily retraining
+  ENABLE_RETRAINING: "true"  # ← New flag here
 ---  
 apiVersion: v1
 kind: ConfigMap

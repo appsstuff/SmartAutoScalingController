@@ -11,7 +11,7 @@ HISTORY_FILE = "/data/history.pkl"
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
-        print("🧠 Loading saved history...")
+        print(" Loading saved history...")
         return joblib.load(HISTORY_FILE)
     print("🆕 Starting with empty history")
     return {}
@@ -25,7 +25,7 @@ def save_history(history):
         joblib.dump(history, HISTORY_FILE)
         print(f"💾 History saved to {HISTORY_FILE}")
     except Exception as e:
-        print(f"❌ Failed to save history: {e}")
+        print(f" Failed to save history: {e}")
 
 def query_vm(query):
     try:

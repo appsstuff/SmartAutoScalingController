@@ -1,71 +1,91 @@
-import numpy as np
-from sklearn.preprocessing import StandardScaler
+import os
 import joblib
-from xgboost import XGBClassifier
-from tensorflow.keras.models import load_model
+import numpy as np
+import tensorflow as tf
+import xgboost as xgb
+from models.gpr_model import predict_with_gpr
+from models.xgb_model import predict_with_xgb
+from models.lstm_model import predict_with_lstm
+from sklearn.preprocessing import StandardScaler
 
-target_names = ["scale_down", "no_change", "scale_up"]
+# ======== Model Manager with Cache ========
+class ModelManager:
+    def __init__(self, service_name):
+        self.service_name = service_name
+        self.model_path = os.path.join("models", service_name)
+        self._load_all_models()
 
-def load_models(pod_name):
-    """Load pod-specific models"""
-    gpr = joblib.load(f"models/gpr_model_{pod_name}.pkl")
-    clf = XGBClassifier()
-    clf.load_model(f"models/xgb_model_{pod_name}.json")
-    model_lstm = load_model(f"models/lstm_model_{pod_name}.h5")
-    scaler = joblib.load(f"models/scaler_{pod_name}.pkl")
-    return gpr, clf, model_lstm, scaler
+    def _load_all_models(self):
+        self.scaler = joblib.load(os.path.join(self.model_path, "scaler_model.pkl"))
+        self.gpr = joblib.load(os.path.join(self.model_path, "gpr_model.pkl"))
+        self.clf = xgb.XGBClassifier()
+        self.clf.load_model(os.path.join(self.model_path, "xgb_model.json"))
+        self.lstm = tf.keras.models.load_model(os.path.join(self.model_path, "lstm_model.h5"))
 
-def predict_scaling_action(input_row, seq_input):
-    """
-    Predict scaling action using hybrid model
-    """
-    pod_name = os.getenv("TARGET_DEPLOYMENT", "adservice")
-    gpr, clf, model_lstm, scaler = load_models(pod_name)
+    def predict(self, features):
+        X_input = np.array([features])
+        X_scaled = self.scaler.transform(X_input)
 
-    input_scaled = scaler.transform([input_row])
-    seq_scaled = scaler.transform(seq_input.reshape(-1, seq_input.shape[-1])).reshape(seq_input.shape)
+        # GPR Prediction
+        gpr_pred, std = self.gpr.predict(X_scaled, return_std=True)
+        gpr_class = self.classify_gpr(gpr_pred[0], std[0])
 
-    # GPR Prediction
-    gpr_pred, std = gpr.predict(input_scaled, return_std=True)
-    threshold_up = np.percentile(gpr_pred, 90)
-    threshold_down = np.percentile(gpr_pred, 10)
-    gpr_class = np.where(gpr_pred > threshold_up, 0,
-                         np.where(gpr_pred < threshold_down, 2, 1))
+        # XGBoost Prediction
+        xgb_pred = self.clf.predict(X_scaled)[0]
 
-    # XGBoost Prediction
-    xgb_pred = clf.predict(input_scaled)[0]
+        # LSTM Prediction
+        lstm_input = X_scaled.reshape((1, X_scaled.shape[0], 1))
+        lstm_score = self.lstm.predict(lstm_input)[0][0]
+        lstm_class = self.classify_lstm(lstm_score)
 
-    # LSTM Prediction
-    lstm_pred = model_lstm.predict(seq_scaled, verbose=0).flatten()
-    lstm_class = np.where(lstm_pred.mean() > threshold_up, 0,
-                          np.where(lstm_pred.mean() < threshold_down, 2, 1))
+        return fuse_predictions(gpr_class, xgb_pred, lstm_class)
 
-    final_class = int(np.round((gpr_class[0] + xgb_pred + lstm_class) / 3))
-    final_decision = fuse_predictions(gpr_class, xgb_pred, lstm_class)
+    @staticmethod
+    def classify_gpr(pred, std):
+        if pred > 0.6:
+            return 2  # scale_up
+        elif pred < 0.3:
+            return 0  # scale_down
+        else:
+            return 1  # no_change
 
-    return target_names[final_decision]
+    @staticmethod
+    def classify_lstm(score):
+        if score > 0.6:
+            return 2
+        elif score < 0.3:
+            return 0
+        else:
+            return 1
 
-
+# ======== Prediction Fusion Logic ========
 def fuse_predictions(gpr_pred, xgb_pred, lstm_pred):
-    """
-    Combines predictions from GPR, XGB, and LSTM models
-    Returns: final_decision (str)
-    """
     decision_map = {0: "scale_down", 1: "no_change", 2: "scale_up"}
     votes = [gpr_pred, xgb_pred, lstm_pred]
-    
-    # Count occurrences
     vote_counts = {i: votes.count(i) for i in set(votes)}
     majority = [k for k, v in vote_counts.items() if v == max(vote_counts.values())]
 
     if len(majority) == 1:
         final = majority[0]
     else:
-        # Tie: use model priority fallback
-        priority = [gpr_pred, xgb_pred, lstm_pred]
-        for model_vote in priority:
+        # Tie-breaker by model priority
+        for model_vote in [gpr_pred, xgb_pred, lstm_pred]:
             if model_vote in majority:
                 final = model_vote
                 break
 
     return decision_map[final]
+
+# ======== Main Entry Point ========
+def predict_scaling_action(features, service_name):
+    manager = ModelManager(service_name)
+    return manager.predict(features)
+
+def run_gpr_model(features):
+    return predict_with_gpr(features)
+
+def run_xgb_model(features):
+    return predict_with_xgb(features)
+
+def run_lstm_model(features):
+    return predict_with_lstm(features)

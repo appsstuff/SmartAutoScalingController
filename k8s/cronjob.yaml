@@ -16,7 +16,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -26,7 +26,7 @@ spec:
           volumes:
             - name: autoscaler-data
               persistentVolumeClaim:
-                claimName: autoscaler-data
+                claimName: autoscaler-data-pvc
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -40,7 +40,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -61,7 +61,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -82,7 +82,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -103,7 +103,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -124,7 +124,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -145,7 +145,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -166,7 +166,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -187,7 +187,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -208,7 +208,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -229,7 +229,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config
@@ -250,7 +250,7 @@ spec:
         spec:
           containers:
             - name: autoscaler
-              image: your-docker-hub/smart-autoscaler:latest
+              image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config

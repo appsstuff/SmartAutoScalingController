@@ -15,7 +15,7 @@ async def async_query_vm(session: aiohttp.ClientSession, query):
                 if result:
                     return float(result[0]['value'][1])
     except Exception as e:
-        print(f"⚠️ Async VM query failed: {e}")
+        print(f" Async VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
 async def fetch_pod_metrics_async(session: aiohttp.ClientSession, pod_name="adservice", namespace="default"):

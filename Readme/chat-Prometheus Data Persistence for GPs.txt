@@ -41365,7 +41365,7 @@ try:
         time.sleep(60)  # Run every minute
 
 except KeyboardInterrupt:
-    print("\n🛑 Autoscaler stopped. Saving final history...")
+    print("\n Autoscaler stopped. Saving final history...")
     save_history(fetch_pod_metrics.history)
     print("✅ Final history saved.")
 ```
@@ -41695,7 +41695,7 @@ try:
         time.sleep(60)  # Run every minute
 
 except KeyboardInterrupt:
-    print("\n🛑 Autoscaler stopped. Saving final history...")
+    print("\n Autoscaler stopped. Saving final history...")
     save_history(fetch_pod_metrics.history)
     print("✅ Final history saved.")
 
@@ -41849,7 +41849,7 @@ try:
         time.sleep(60)  # Run every minute
 
 except KeyboardInterrupt:
-    print("\n🛑 Autoscaler stopped. Saving final history...")
+    print("\n Autoscaler stopped. Saving final history...")
     save_history(fetch_pod_metrics.history)
     print("✅ Final history saved.")
 ```
@@ -43773,7 +43773,7 @@ try:
         time.sleep(60)
 
 except KeyboardInterrupt:
-    print("\n🛑 Autoscaler stopped. Saving final history...")
+    print("\n Autoscaler stopped. Saving final history...")
     save_history(fetch_pod_metrics.history)
     print("✅ Final history saved.")
 ```
