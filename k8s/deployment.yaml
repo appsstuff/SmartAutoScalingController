@@ -5,7 +5,6 @@ metadata:
   namespace: monitoring
   labels:
     app: smart-autoscaler
-    target: development
 spec:
   replicas: 1
   selector:
@@ -21,15 +20,11 @@ spec:
       containers:
         - name: autoscaler
           image: gcr.io/cairo-university-457016/autoscaling-controller:latest
+          command: ["python", "autoscaler_controller.py"]
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
                 name: smart-autoscaler-global-config
-          env:
-            - name: TARGET_DEPLOYMENT
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.labels['target']
           volumeMounts:
             - name: autoscaler-data
               mountPath: /date

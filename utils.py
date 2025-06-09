@@ -5,14 +5,18 @@ import joblib
 import requests
 from datetime import datetime, timedelta
 
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus.yassein.com/query/api/v1/query")
-LEARNING_DAYS  = os.getenv("LEARNING_DAYS",10)
+# Global history dict
+history = {}    
+# VictoriaMetrics / Prometheus URL
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/query")
 STEP_SECONDS = int(os.getenv("STEP_SECONDS", "60"))
 HISTORY_FILE = "/data/history.pkl"
-STEP_SECONDS = 60
+os.makedirs("/data", exist_ok=True)
+LEARNING_DAYS  = os.getenv("LEARNING_DAYS",10)
 HISTORICAL_CPU_USAGE_FALLBACK = [np.random.uniform(0.1, 0.9) for _ in range(50)]  # Fallback sequence length
 
 def load_history():
+    """Load saved history from disk if exists"""
     if os.path.exists(HISTORY_FILE):
         print(" Loading saved history...")
         return joblib.load(HISTORY_FILE)
@@ -41,19 +45,17 @@ def query_vm(query):
         print(f" VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
-def fetch_pod_metrics(pod_name, namespace="default"):
+def fetch_pod_metrics(pod_name="adservice", namespace="default"):
     """
-    Fetch live metrics from VictoriaMetrics or Prometheus.
-    Returns:
-        dict: Raw metric values for further processing
+    Fetch live metrics from VictoriaMetrics or Prometheus
     """
-    return {
+    queries = {
         "hour_of_day": datetime.now().hour,
         "day_of_week": datetime.now().weekday(),
         "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'),
         "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}} offset 5m'),
         "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}[10m])'),
-        "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container_name="{pod_name}"}}') / (1024 * 1024),  # Convert to MB
+        "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container_name="{pod_name}"}}') / (1024 * 1024),
         "req_rate": query_vm(f'rate(http_requests_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])'),
         "latency": query_vm(f'histogram_quantile(0.95, sum(rate(http_request_latencies_bucket{{le="+Inf", namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])) by (le))'),
         "net_receive_KB": query_vm(f'rate(container_network_receive_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
@@ -61,6 +63,8 @@ def fetch_pod_metrics(pod_name, namespace="default"):
         "pod_restarts": query_vm(f'kube_pod_container_status_restarts_total{{namespace="{namespace}", container="{pod_name}"}}'),
         "pod_ready": query_vm(f'kube_pod_container_status_ready{{namespace="{namespace}", container="{pod_name}"}}')
     }
+    
+    return queries
 
 def build_feature_vector(metrics, feature_list):
     return np.array([metrics[f] for f in feature_list if f in metrics])

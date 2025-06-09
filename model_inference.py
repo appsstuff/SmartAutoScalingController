@@ -138,5 +138,5 @@ def predict_scaling_action(input_row, seq_input, service_name=None):
         print(f"[{pod_name}] Hybrid decision used")
         return decision
     except Exception as e:
-        print(f"⚠️ [{pod_name}] Failed to load hybrid model: {e}")
+        print(f" [{pod_name}] Failed to load hybrid model: {e}")
         return fallback_predict(input_row)

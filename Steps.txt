@@ -1,12 +1,49 @@
 🐳 How to Deploy to Kubernetes
 
 gcloud services enable containerregistry.googleapis.com
+gcloud services enable cloudbuild.googleapis.com
 
-# Build the Docker image and tag it for GCR
-docker build -t gcr.io/cairo-university-457016/autoscaling-controller:latest .
 
-# Push the image to GCR
-docker push gcr.io/cairo-university-457016/autoscaling-controller:latest
+                # Build the Docker image and tag it for GCR
+                docker build -t gcr.io/cairo-university-457016/autoscaling-controller:latest .
+                # Push the image to GCR
+                docker push gcr.io/cairo-university-457016/autoscaling-controller:latest
+
+OR
+#build in google direclly
+gcloud builds submit --tag gcr.io/cairo-university-457016/autoscaling-controller:latest .
+
+
+
+
+
+#If you're building on macOS (M1 or M2), do this:
+docker buildx create --use
+docker buildx build --platform linux/amd64 -t gcr.io/cairo-university-457016/autoscaling-controller:latest --push .
+docker push gcr.io/your-project/autoscaling-controller:latest
+
+# 🧪 Optional: Test Locally Using Emulation
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock --privileged tonistiigi/binfmt
+docker run --platform linux/amd64 -it gcr.io/cairo-university-457016/autoscaling-controller:latest sh
+
+c/usr/local/bin/python --version
+
+#🧪 Optional: Test Locally Using Emulation
+#If you're on Apple Silicon (M1/M2) and want to test the image locally in amd64 mode:
+
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock --privileged tonistiigi/binfmt
+
+#Then:
+docker run --platform linux/amd64 -it gcr.io/cairo-university-457016/autoscaling-controller:latest sh
+
+#Try running:
+/usr/local/bin/python --version
+
+
+#collect pthon Lib
+pip install pipreqs
+pipreqs /path
+
 
 #upload model
 kubectl cp ./models   monitoring/pvc-uploader:/models
