@@ -5,7 +5,6 @@ from kubernetes import client, config
 def initialize_k8s_client():
     try:
         config.load_incluster_config()
-        print(" Loaded in-cluster kube config")
     except Exception:
         config.load_kube_config()
         print(" Loaded local kube config")

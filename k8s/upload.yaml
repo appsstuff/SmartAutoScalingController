@@ -1,0 +1,19 @@
+# pvc-upload-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-uploader
+  namespace: monitoring
+spec:
+  containers:
+    - name: uploader
+      image: busybox
+      command: [ "sleep", "3600" ]
+      volumeMounts:
+        - name: data
+          mountPath: /models
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: autoscaler-data-pvc
+  restartPolicy: Never

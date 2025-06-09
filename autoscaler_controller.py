@@ -3,8 +3,9 @@ import os
 from datetime import datetime, timedelta
 import numpy as np
 from pod_config import AUTO_SCALE_SERVICES
-from k8s_scaler import apply_k8s_scaling
 from model_inference import predict_scaling_action
+from k8s_scaler import apply_k8s_scaling
+
 from utils import (
     fetch_pod_metrics,
     build_feature_vector,
@@ -61,7 +62,7 @@ else:
                                         
                     # Only load historical data if history is too short
                     if len(fetch_pod_metrics.history[key]) < seq_length:
-                        print(f"🧠 No valid history found for {key} — fetching past data")
+                        print(f"No valid history found for {key} — fetching past data")
                         cpu_values = fetch_historical_data(pod_name, namespace, seq_length=seq_length, days=10)
                         synthetic_features = []
                         for v in cpu_values[-seq_length:]:
@@ -89,11 +90,11 @@ else:
 
                     seq_input = create_sequence(np.array(fetch_pod_metrics.history[key]), seq_length)
                     if len(seq_input) == 0:
-                        print(f"⏳ Waiting — collecting initial data for {pod_name} (need at least {seq_length} samples)")
+                        print(f" Waiting — collecting initial data for {pod_name} (need at least {seq_length} samples)")
                         continue
 
                     # Step 5: Predict action
-                    decision = predict_scaling_action(input_row, seq_input)
+                    decision = predict_scaling_action(input_row, seq_input, service_name=pod_name)
                     print(f" Decision for {pod_name}: {decision}")
 
                     # Step 6: Log for retraining

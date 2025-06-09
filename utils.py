@@ -38,7 +38,7 @@ def query_vm(query):
             if result:
                 return float(result[0]['value'][1])
     except Exception as e:
-        print(f"⚠️ VM query failed: {e}")
+        print(f" VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
 def fetch_pod_metrics(pod_name, namespace="default"):
@@ -88,23 +88,6 @@ def record_live_data(pod_name, input_row, decision):
     log_path = os.path.join(log_dir, f"{pod_name}_live_data.csv")
     df.to_csv(log_path, mode='a', index=False, header=not os.path.exists(log_path))
 
-def predict_scaling_action(input_row, sequence):
-    """
-    Hybrid prediction using multiple models
-    Returns: 'scale_down', 'no_change', or 'scale_up'
-    """
-    # Default to no_change if no sequence data
-    if len(sequence) == 0:
-        return 'no_change'
-    
-    # Simple threshold-based logic
-    cpu_usage = input_row[2]  # cpu_usage_lag_1
-    if cpu_usage > 0.8:
-        return 'scale_up'
-    elif cpu_usage < 0.2:
-        return 'scale_down'
-    return 'no_change'
-
 def validate_service_config(svc):
     """Validate service dict has required keys"""
     if "pod_name" not in svc:
@@ -153,14 +136,14 @@ def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS
             cpu_values = [float(v[1]) for v in values]
 
             if len(cpu_values) < seq_length:
-                print(f"⚠️ Only {len(cpu_values)} samples found — using fallback")
+                print(f" Only {len(cpu_values)} samples found — using fallback")
                 return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
 
             print(f"📊 Loaded {len(cpu_values)} historical entries for {pod_name}")
             return cpu_values[-seq_length:]
 
     except Exception as e:
-        print(f"⚠️ Historical fetch failed: {e}")
+        print(f" Historical fetch failed: {e}")
 
     # Use random fallback if all else fails
     print("🧪 Using simulated history (no Prometheus/VictoriaMetrics data)")

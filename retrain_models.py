@@ -67,7 +67,7 @@ class ModelTrainer:
         y_seq = y[:X_seq.shape[0]]
 
         model = Sequential()
-        model.add(LSTM(64, input_shape=(X_seq.shape[1], 1), return_sequences=False))
+        model.add(c(64, input_shape=(X_seq.shape[1], 1), return_sequences=False))
         model.add(Dropout(0.3))
         model.add(Dense(32, activation='relu'))
         model.add(Dense(1, activation='sigmoid'))

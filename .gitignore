@@ -4,7 +4,8 @@ venv_tf/
 models/
 __pycache__/
 models/
-
+data/
+remo
 *.pkl
 *.hs
 models

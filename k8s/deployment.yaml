@@ -2,20 +2,25 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: smart-autoscaler
-  namespace: default
+  namespace: monitoring
+  labels:
+    app: smart-autoscaler
+    target: development
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: smart-autoscaler
+      target: development
   template:
     metadata:
       labels:
         app: smart-autoscaler
+        target: development
     spec:
       containers:
         - name: autoscaler
-          image: gcr.io/your-gcp-project/autoscaling-controller:latest
+          image: gcr.io/cairo-university-457016/autoscaling-controller:latest
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
@@ -26,14 +31,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.labels['target']
           volumeMounts:
-            - name: autoscaler-models
-              mountPath: /app/models
             - name: autoscaler-data
-              mountPath: /data
+              mountPath: /date
       volumes:
-        - name: autoscaler-models
-          persistentVolumeClaim:
-            claimName: autoscaler-models-pvc
         - name: autoscaler-data
           persistentVolumeClaim:
             claimName: autoscaler-data-pvc
@@ -43,7 +43,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: smart-autoscaler-service
-  namespace: default
+  namespace: monitoring
 spec:
   selector:
     app: smart-autoscaler
