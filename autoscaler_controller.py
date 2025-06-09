@@ -12,7 +12,8 @@ from utils import (
     create_sequence,
     validate_service_config,
     load_history,
-    save_history
+    save_history,
+    fetch_historical_data
 )
 
 
@@ -57,6 +58,24 @@ else:
                     key = f"{namespace}/{pod_name}"
                     if key not in fetch_pod_metrics.history:
                         fetch_pod_metrics.history[key] = []
+                                        
+                    # Only load historical data if history is too short
+                    if len(fetch_pod_metrics.history[key]) < seq_length:
+                        print(f"🧠 No valid history found for {key} — fetching past data")
+                        cpu_values = fetch_historical_data(pod_name, namespace, seq_length=seq_length, days=10)
+                        synthetic_features = []
+                        for v in cpu_values[-seq_length:]:
+                            synthetic_features.append(np.array([
+                                datetime.now().hour,
+                                datetime.now().weekday(),
+                                v * 0.9,  # cpu_usage_lag_1
+                                v * 0.7,  # cpu_usage_lag_5
+                                v * 0.8,  # cpu_roll_mean_10
+                                raw_metrics.get("mem_usage", 200),
+                                raw_metrics.get("req_rate", 10)
+                            ]))
+                        fetch_pod_metrics.history[key] = synthetic_features    
+                        
 
                     fetch_pod_metrics.history[key].append(input_row)
                     if len(fetch_pod_metrics.history[key]) > seq_length + 10:

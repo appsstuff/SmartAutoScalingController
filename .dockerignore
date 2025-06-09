@@ -1,0 +1,31 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+env/
+venv/
+Readme/
+models/
+k8s/
+data/
+live_data/
+
+# Git and logs
+.git/
+.gitignore
+*.log
+
+# Large files
+*.csv
+*.pkl
+*.h5
+
+# IDE/editor configs
+.vscode/
+.idea/
+
+# Credentials / env
+.env

@@ -12,8 +12,4 @@ joblib
 tqdm
 aiohttp
 asyncio
-kubernetes
-joblib
-sklearn
-matplotlib
-seaborn
+scikit-learn

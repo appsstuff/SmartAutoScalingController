@@ -8,6 +8,7 @@ data:
   CHECK_INTERVAL_SECONDS: "60"
   RETRAIN_INTERVAL_MINUTES: "1440"  # Daily retraining
   ENABLE_RETRAINING: "true"  # ← New flag here
+  LEARNING_DAYS: 10
 ---  
 apiVersion: v1
 kind: ConfigMap
