@@ -81,10 +81,15 @@ else:
                     if len(fetch_pod_metrics.history[key]) > seq_length + 10:
                         fetch_pod_metrics.history[key] = fetch_pod_metrics.history[key][-seq_length - 10:]
 
-                    # Step 4: Create sequence input for LSTM
+                    # Step 4: Create sequence input for LSTM model
+                    # --------------------------------------------
+                    # The LSTM model requires a time-series sequence of length `seq_length`
+                    # We create sequences from historical data using the `create_sequence()` utility
+                    # If there's not enough history yet, we skip prediction and continue collecting metrics
+
                     seq_input = create_sequence(np.array(fetch_pod_metrics.history[key]), seq_length)
                     if len(seq_input) == 0:
-                        print(f" Waiting — collecting initial data for {pod_name}")
+                        print(f"⏳ Waiting — collecting initial data for {pod_name} (need at least {seq_length} samples)")
                         continue
 
                     # Step 5: Predict action

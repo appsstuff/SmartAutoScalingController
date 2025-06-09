@@ -43,16 +43,17 @@ def query_vm(query):
 
 def fetch_pod_metrics(pod_name, namespace="default"):
     """
-    Fetch live metrics from VictoriaMetrics (no recursion)
-    Works for any pod_name and namespace
+    Fetch live metrics from VictoriaMetrics or Prometheus.
+    Returns:
+        dict: Raw metric values for further processing
     """
     return {
         "hour_of_day": datetime.now().hour,
         "day_of_week": datetime.now().weekday(),
         "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'),
         "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}} offset 5m'),
-        "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}[10m]'),
-        "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container_name="{pod_name}"}}') / (1024 * 1024),
+        "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}[10m])'),
+        "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container_name="{pod_name}"}}') / (1024 * 1024),  # Convert to MB
         "req_rate": query_vm(f'rate(http_requests_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])'),
         "latency": query_vm(f'histogram_quantile(0.95, sum(rate(http_request_latencies_bucket{{le="+Inf", namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])) by (le))'),
         "net_receive_KB": query_vm(f'rate(container_network_receive_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
@@ -112,14 +113,20 @@ def validate_service_config(svc):
         raise KeyError("Missing 'feature_names'")
     if "seq_length" not in svc:
         raise KeyError("Missing 'seq_length'")
- 
+    
+    
 def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS):
     """
     Query historical CPU usage from VictoriaMetrics or Prometheus.
     
+    Args:
+        pod_name (str): Name of the service/pod
+        namespace (str): Kubernetes namespace
+        seq_length (int): Required number of samples for model input
+        days (int): How many days of history to query
+    
     Returns:
-        list of float values (CPU usage samples)
-        If query fails, returns synthetic data with warning
+        list: List of CPU usage samples (length = seq_length)
     """
     end_time = datetime.now()
     start_time = end_time - timedelta(days=days)
@@ -138,19 +145,23 @@ def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS
     try:
         response = requests.get(PROMETHEUS_URL, params=params, timeout=5)
         if response.status_code == 200:
-            values = response.json().get('data', {}).get('result', [{}])[0].get('values', [])
+            result = response.json().get('data', {}).get('result', [])
+            if not result:
+                raise ValueError("No data returned from Prometheus")
+
+            values = result[0].get('values', [])
             cpu_values = [float(v[1]) for v in values]
-            
+
             if len(cpu_values) < seq_length:
-                print(f"⚠️ Not enough historical data ({len(cpu_values)} samples), using fallback")
+                print(f"⚠️ Only {len(cpu_values)} samples found — using fallback")
                 return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
-                
+
             print(f"📊 Loaded {len(cpu_values)} historical entries for {pod_name}")
             return cpu_values[-seq_length:]
 
     except Exception as e:
         print(f"⚠️ Historical fetch failed: {e}")
 
-    # Return fallback if VM/Prometheus unreachable or no data
+    # Use random fallback if all else fails
     print("🧪 Using simulated history (no Prometheus/VictoriaMetrics data)")
     return [np.random.uniform(0.1, 0.9) for _ in range(seq_length)]

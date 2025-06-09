@@ -9,7 +9,6 @@ env/
 venv/
 Readme/
 models/
-k8s/
 data/
 live_data/
 
