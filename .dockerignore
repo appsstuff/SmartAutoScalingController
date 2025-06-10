@@ -10,7 +10,6 @@ venv/
 Readme/
 models/
 data/
-data/
 live_data/
 
 # Git and logs

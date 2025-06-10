@@ -1,57 +1,43 @@
 import time
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 import numpy as np
-import requests
+import sklearn
 from pod_config import AUTO_SCALE_SERVICES
 from model_inference import predict_scaling_action
 from k8s_scaler import apply_k8s_scaling
+from prometheus_client import Gauge, start_http_server
+import requests
 
 from utils import (
     fetch_pod_metrics,
     build_feature_vector,
-    record_live_data,
+    send_to_victoriametrics,
     create_sequence,
     validate_service_config,
-    load_history,
-    save_history,
-    fetch_historical_data
+    fetch_historical_data,
+    record_live_data
 )
 
-GRAFANA_URL    = os.getenv("GRAFANA_URL", "http://grafana.monitoring.svc:3000")
-GRAFANA_API_KEY= os.getenv("GRAFANA_API_KEY", "")
-
-def send_grafana_annotation(text, tags=None):
-    """Send annotation to Grafana."""
-    grafana_url = GRAFANA_URL
-    api_key = os.getenv(GRAFANA_API_KEY)
-    
-    if not api_key:
-        return
-        
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "text": text,
-        "tags": tags or []
-    }
-    
+def check_vm_connection():
     try:
-        requests.post(f"{grafana_url}/api/annotations", headers=headers, json=data)
-    except Exception as e:
-        print(f"Failed to send Grafana annotation: {e}")
+        response = requests.get("http://localhost:8428/health")
+        return response.status_code == 200
+    except:
+        return False
 
-print(" Starting Smart AutoScaler Controller")
-# Alert thresholds
-MAX_ALLOWED_REPLICAS = 10
-MIN_ALLOWED_REPLICAS = 1
-CONFIDENCE_THRESHOLD = 0.6  # confidence range [0-1]
+# Start Prometheus metrics server on port 8900
 
-# Load history at startup
-fetch_pod_metrics.history = load_history()
+print(f"🧠 Running with scikit-learn v{sklearn.__version__}, NumPy v{np.__version__}")
+start_http_server(8900)
+# Define custom metrics
+DECISION_GAUGE = Gauge('autoscaler_decision', 'Last autoscaler decision', ['service'])
+CPU_USAGE_GAUGE = Gauge('autoscaler_cpu_usage', 'Current CPU usage from feature vector', ['service'])
+MEM_USAGE_GAUGE = Gauge('autoscaler_mem_usage', 'Current memory usage', ['service'])
+REQ_RATE_GAUGE = Gauge('autoscaler_req_rate', 'Request rate per second', ['service'])
+MODEL_CONFIDENCE_GAUGE = Gauge('autoscaler_model_confidence', 'Model prediction confidence', ['service'])
+
+print("📊 Prometheus metrics endpoint started at :9090")
 
 try:
     while True:
@@ -60,6 +46,7 @@ try:
 
         for idx, svc in enumerate(AUTO_SCALE_SERVICES):
             percent = int((idx + 1) / total * 100)
+
             try:
                 validate_service_config(svc)
 
@@ -80,20 +67,18 @@ try:
                     print(f" No features built for {pod_name}")
                     continue
 
-                # Step 3: Manage history for LSTM
                 key = f"{namespace}/{pod_name}"
-
                 if not hasattr(fetch_pod_metrics, 'history'):
                     fetch_pod_metrics.history = {}
 
                 if key not in fetch_pod_metrics.history:
                     fetch_pod_metrics.history[key] = []
 
-                # Only load historical data if history is too short
+                # Step 3: Load fallback history if insufficient data
                 if len(fetch_pod_metrics.history[key]) < seq_length:
-                    print(f" No valid history found for {key} — fetching past data")
+                    print(f"📥 No valid history found for {key} — fetching past data")
                     cpu_values = fetch_historical_data(pod_name, namespace, days=10)
-                    
+
                     synthetic_features = []
                     for v in cpu_values[-seq_length:]:
                         synthetic_features.append(np.array([
@@ -105,63 +90,84 @@ try:
                             raw_metrics.get("mem_usage", 200),
                             raw_metrics.get("req_rate", 10)
                         ]))
-                    
                     fetch_pod_metrics.history[key] = synthetic_features
                     print(f"📊 Loaded {len(synthetic_features)} historical entries for {pod_name}")
 
-                # Append latest metric
+                # Append the latest input row
                 fetch_pod_metrics.history[key].append(input_row)
 
-                # Trim history to prevent memory overload
-                if len(fetch_pod_metrics.history[key]) > seq_length + 10:
-                    fetch_pod_metrics.history[key] = fetch_pod_metrics.history[key][-seq_length - 10:]
+                # Limit history size
+                max_history = seq_length + 10
+                if len(fetch_pod_metrics.history[key]) > max_history:
+                    fetch_pod_metrics.history[key] = fetch_pod_metrics.history[key][-max_history:]
 
-                # Step 4: Create sequence input for LSTM
+                # Step 4: Create LSTM input
                 seq_input = create_sequence(np.array(fetch_pod_metrics.history[key]), seq_length)
                 if len(seq_input) == 0:
-                    print(f" Waiting — collecting initial data for {pod_name}")
+                    print(f"⏳ Waiting — collecting initial sequence for {pod_name}")
                     continue
 
-                # Step 5: Predict action
+                # Step 5: Make prediction
                 decision = predict_scaling_action(input_row, seq_input, service_name=pod_name)
                 print(f" Decision for {pod_name}: {decision}")
 
-                # Step 6: Log for retraining — only if learning is enabled
-                if os.getenv("ENABLE_RETRAINING", "true").lower() == "true":
-                    record_live_data(pod_name, raw_metrics, decision)
+                # Step 6: Log decision
+                decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
 
-                # Step 7: Apply Kubernetes scaling
-                # Scaling safeguard
-                if new_replicas > MAX_ALLOWED_REPLICAS:
-                    logging.warning(f"[{pod_name}] Scaling prevented: target replicas {new_replicas} > max {MAX_ALLOWED_REPLICAS}")
-                    continue
-                if new_replicas < MIN_ALLOWED_REPLICAS:
-                    logging.warning(f"[{pod_name}] Scaling prevented: target replicas {new_replicas} < min {MIN_ALLOWED_REPLICAS}")
-                    continue
+
+                if not check_vm_connection():
+                    print(" VictoriaMetrics unreachable — skipping log push")
+                else:
+                    # Log decision
+                    vm_success = send_to_victoriametrics(
+                        "autoscaler_decision",
+                        decision_value,
+                        {"service": pod_name, "action": decision}
+                    )
+
+                    # Also log CPU, Mem, Req Rate
+                    vm_success &= send_to_victoriametrics(
+                        "autoscaler_cpu_usage",
+                        raw_metrics.get("cpu_usage_lag_1", 0.0),
+                        {"service": pod_name}
+                    )
+
+                    vm_success &= send_to_victoriametrics(
+                        "autoscaler_mem_usage",
+                        raw_metrics.get("mem_usage", 200),
+                        {"service": pod_name}
+                    )
+
+                    vm_success &= send_to_victoriametrics(
+                        "autoscaler_req_rate",
+                        raw_metrics.get("req_rate", 10),
+                        {"service": pod_name}
+                    )       
+                                    
+                    if not vm_success:
+                        print("⚠️ Some metrics failed to save to VictoriaMetrics — falling back to local logs")
+                    else:
+                        print(f"📊 Logged decision to VictoriaMetrics for {pod_name}")
+
+                # Step 7: Apply scaling
                 apply_k8s_scaling(pod_name, namespace, decision)
-                send_grafana_annotation(
-                    f"{pod_name} scaled to {new_replicas} replicas",
-                    tags=["autoscaling", pod_name]
-                )
+
+                # After prediction
+                decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
+                DECISION_GAUGE.labels(service=pod_name).set(decision_value)
+
+                # Log feature values
+                CPU_USAGE_GAUGE.labels(service=pod_name).set(raw_metrics["cpu_usage_lag_1"])
+                MEM_USAGE_GAUGE.labels(service=pod_name).set(raw_metrics["mem_usage"])
+                REQ_RATE_GAUGE.labels(service=pod_name).set(raw_metrics["req_rate"])    
+                record_live_data(pod_name, input_row, decision)
 
             except KeyError as ke:
-                print(f" Invalid config: missing '{ke}'")
+                print(f" Invalid config: missing key '{ke}'")
             except Exception as e:
                 print(f" Error processing {pod_name}: {e}")
-
-        # Save history only if retraining is enabled
-        if os.getenv("ENABLE_RETRAINING", "true").lower() == "true":
-            save_history(fetch_pod_metrics.history)
-            print("💾 History saved for retraining")
-        else:
-            print(" Retraining disabled — history not saved")
 
         time.sleep(60)
 
 except KeyboardInterrupt:
     print("\n Autoscaler stopped. Saving final history...")
-    if os.getenv("ENABLE_RETRAINING", "true").lower() == "true":
-        save_history(fetch_pod_metrics.history)
-        print(" Final history saved.")
-    else:
-        print(" Retraining disabled — no history written")

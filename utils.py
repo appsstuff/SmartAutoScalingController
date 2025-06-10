@@ -3,62 +3,36 @@ import numpy as np
 import pandas as pd
 import joblib
 import requests
-import logging
-from logging_loki import LokiHandler
 from datetime import datetime, timedelta
 
 # Global history dict
-history = {}    
+history = {}
+
 # VictoriaMetrics / Prometheus URL
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428/api/v1/query")
-GRAFANA_URL    = os.getenv("GRAFANA_URL", "http://grafana.monitoring.svc:3000")
-LOKI_URL           = os.getenv("LOKI_URL", "http://loki.monitoring.svc:3100/loki/api/v1/push")
-
-
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://34.73.82.105:8428")
 STEP_SECONDS = int(os.getenv("STEP_SECONDS", "60"))
 HISTORY_FILE = "/data/history.pkl"
-os.makedirs("/data", exist_ok=True)
-LEARNING_DAYS  = os.getenv("LEARNING_DAYS",10)
+LEARNING_DAYS = int(os.getenv("LEARNING_DAYS", "10"))
 HISTORICAL_CPU_USAGE_FALLBACK = [np.random.uniform(0.1, 0.9) for _ in range(50)]  # Fallback sequence length
 
-def load_history():
-    """Load saved history from disk if exists"""
-    if os.path.exists(HISTORY_FILE):
-        print(" Loading saved history...")
-        return joblib.load(HISTORY_FILE)
-    print("🆕 Starting with empty history")
-    return {}
 
-def save_history(history):
-    """
-    Save history to disk for future use
-    """
-    try:
-        os.makedirs("/data", exist_ok=True)  # Double-check
-        joblib.dump(history, HISTORY_FILE)
-        print(f"💾 History saved to {HISTORY_FILE}")
-    except Exception as e:
-        print(f" Failed to save history: {e}")
 
 def query_vm(query):
     try:
-        response = requests.get(PROMETHEUS_URL, params={'query': query}, timeout=5)
-        
+        response = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={'query': query}, timeout=5)
         if response.status_code == 200:
             result = response.json().get('data', {}).get('result', [])
             if result:
                 return float(result[0]['value'][1])
     except Exception as e:
-        print(f" VM query failed: {e}")
+        print(f"VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
 def fetch_pod_metrics(pod_name="adservice", namespace="default"):
-    """
-    Fetch live metrics from VictoriaMetrics or Prometheus
-    """
-    queries = {
-        "hour_of_day": datetime.now().hour,
-        "day_of_week": datetime.now().weekday(),
+    now = datetime.now()
+    return {
+        "hour_of_day": now.hour,
+        "day_of_week": now.weekday(),
         "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'),
         "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}} offset 5m'),
         "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}[10m])'),
@@ -70,8 +44,6 @@ def fetch_pod_metrics(pod_name="adservice", namespace="default"):
         "pod_restarts": query_vm(f'kube_pod_container_status_restarts_total{{namespace="{namespace}", container="{pod_name}"}}'),
         "pod_ready": query_vm(f'kube_pod_container_status_ready{{namespace="{namespace}", container="{pod_name}"}}')
     }
-    
-    return queries
 
 def build_feature_vector(metrics, feature_list):
     return np.array([metrics[f] for f in feature_list if f in metrics])
@@ -82,49 +54,24 @@ def create_sequence(data, seq_length):
     return np.array([data[i:i+seq_length] for i in range(len(data) - seq_length + 1)])
 
 def record_live_data(pod_name, input_row, decision):
-    log_dir = "/data/live_data"
-    os.makedirs(log_dir, exist_ok=True)
-
-    if isinstance(input_row, dict):
-        metric_values = list(input_row.values())
-        columns = list(input_row.keys())
-    else:
-        metric_values = input_row.flatten().tolist()
-        columns = ["hour_of_day", "day_of_week", "cpu_usage_lag_1", "cpu_usage_lag_5", "cpu_roll_mean_10", "mem_usage", "req_rate"]
-
-    df = pd.DataFrame([metric_values], columns=columns)
-    df["decision"] = decision
-    df["timestamp"] = datetime.now().isoformat()
-
-    log_path = os.path.join(log_dir, f"{pod_name}_live_data.csv")
-    df.to_csv(log_path, mode='a', index=False, header=not os.path.exists(log_path))
+    # Also send to VictoriaMetrics
+    decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
+    send_to_victoriametrics("autoscaler_decision", decision_value, {"service": pod_name, "action": decision})
+    send_to_victoriametrics("autoscaler_cpu_usage", input_row[2], {"service": pod_name})  # cpu_usage_lag_1
+    send_to_victoriametrics("autoscaler_mem_usage", input_row[5], {"service": pod_name})
+    send_to_victoriametrics("autoscaler_req_rate", input_row[6], {"service": pod_name})
 
 def validate_service_config(svc):
-    """Validate service dict has required keys"""
     if "pod_name" not in svc:
         raise KeyError("Missing 'pod_name'")
     if "feature_names" not in svc:
         raise KeyError("Missing 'feature_names'")
     if "seq_length" not in svc:
         raise KeyError("Missing 'seq_length'")
-    
-    
+
 def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS):
-    """
-    Query historical CPU usage from VictoriaMetrics or Prometheus.
-    
-    Args:
-        pod_name (str): Name of the service/pod
-        namespace (str): Kubernetes namespace
-        seq_length (int): Required number of samples for model input
-        days (int): How many days of history to query
-    
-    Returns:
-        list: List of CPU usage samples (length = seq_length)
-    """
     end_time = datetime.now()
     start_time = end_time - timedelta(days=days)
-
     start = int(start_time.timestamp())
     end = int(end_time.timestamp())
 
@@ -137,7 +84,7 @@ def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS
     }
 
     try:
-        response = requests.get(PROMETHEUS_URL, params=params, timeout=5)
+        response = requests.get(f"{PROMETHEUS_URL}/api/v1/query_range", params=params, timeout=5)
         if response.status_code == 200:
             result = response.json().get('data', {}).get('result', [])
             if not result:
@@ -147,51 +94,114 @@ def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS
             cpu_values = [float(v[1]) for v in values]
 
             if len(cpu_values) < seq_length:
-                print(f" Only {len(cpu_values)} samples found — using fallback")
+                print(f"Only {len(cpu_values)} samples found — using fallback")
                 return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
 
             print(f"📊 Loaded {len(cpu_values)} historical entries for {pod_name}")
             return cpu_values[-seq_length:]
 
     except Exception as e:
-        print(f" Historical fetch failed: {e}")
+        print(f"Historical fetch failed: {e}")
 
-    # Use random fallback if all else fails
-    print(" Using simulated history (no Prometheus/VictoriaMetrics data)")
+    print("Using simulated history (no Prometheus/VictoriaMetrics data)")
     return [np.random.uniform(0.1, 0.9) for _ in range(seq_length)]
 
 
-def send_grafana_annotation(message, tags=None):
-    API_KEY = os.getenv("GRAFANA_API_KEY", "your_token_here")
+def send_to_victoriametrics(metric_name, value, labels):
+    """
+    Send custom metric to VictoriaMetrics using JSON line format
+    
+    Args:
+        metric_name (str): Name of the metric
+        value (float): Value to store
+        labels (dict): Labels like {"service": "adservice", "action": "scale_up"}
+    
+    Returns:
+        bool: True if success
+    """
+    try:
+        # Timestamp in milliseconds
+        timestamp = int(datetime.now().timestamp() * 1000)
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
-    }
+        # Format labels properly
+        label_str = ",".join([f'{k}="{v}"' for k, v in labels.items()])
+        
+        # Build line in VictoriaMetrics format
+        line = f"{metric_name}{{{label_str}}} {value} {timestamp}"
 
-    payload = {
-        "text": message,
-        "tags": tags or [],
-        "time": int(time.time() * 1000)
-    }
+        # Use correct VM import endpoint
+        url = f"{PROMETHEUS_URL}/api/v1/import"
+        
+        headers = {
+            "Content-Type": "text/plain",
+            "User-Agent": "SmartAutoScaler/1.0"
+        }
+
+        response = requests.post(url, data=line, headers=headers, timeout=5)
+        
+        # Accept both 200 and 204 as valid responses
+        if response.status_code in [200, 204]:
+            print(f"✅ Sent to VictoriaMetrics: {line}")
+            return True
+        else:
+            print(f"⚠️ Failed to write to VM: {response.status_code}, expected 200 or 204")
+            print(f"🪲 Response: {response.text}")
+            return False
+            
+    except Exception as e:
+        print(f"🚫 Could not reach VictoriaMetrics: {e}")
+        return False
+def fetch_logged_decisions(pod_name, namespace="default", days=7):
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=days)
+    start = int(start_time.timestamp())
+    end = int(end_time.timestamp())
+
+    query = f'autoscaler_decision{{service="{pod_name}"}}'
+    params = {'query': query, 'start': start, 'end': end, 'step': STEP_SECONDS}
 
     try:
-        response = requests.post(f"{GRAFANA_URL}/api/annotations", json=payload, headers=headers)
-        response.raise_for_status()
-        logging.info(f" Grafana annotation sent: {message}")
+        response = requests.get(f"{PROMETHEUS_URL}/api/v1/query_range", params=params, timeout=5)
+        if response.status_code == 200:
+            result = response.json().get('data', {}).get('result', [])
+            if result:
+                return [float(v[1]) for v in result[0].get('values', [])]
     except Exception as e:
-        logging.error(f" Failed to send annotation: {e}")
+        print(f" Failed to fetch logged decisions: {e}")
+
+    print("Falling back to synthetic decisions")
+    return np.random.randint(0, 3, size=100).tolist()
+
+def create_sequence_from_vm(pod_name, namespace, seq_length=10):
+    cpu_values = fetch_historical_data(pod_name, namespace, days=10)
+
+    if len(cpu_values) < seq_length:
+        print(f"Not enough data from VM — using simulated history")
+        return [np.random.uniform(0.1, 0.9) for _ in range(seq_length)]
+
+    live_metrics = fetch_pod_metrics(pod_name, namespace)
+
+    synthetic_features = []
+    for v in cpu_values[-seq_length:]:
+        synthetic_features.append(np.array([
+            datetime.now().hour,
+            datetime.now().weekday(),
+            v * 0.9,  # cpu_usage_lag_1
+            v * 0.7,  # cpu_usage_lag_5
+            v * 0.8,  # cpu_roll_mean_10
+            live_metrics.get("mem_usage", 200),
+            live_metrics.get("req_rate", 10)
+        ]))
+
+    print(f"Loaded {len(synthetic_features)} entries from VM for {pod_name}")
+    return np.array(synthetic_features)
 
 
-
-loki_handler = LokiHandler(
-    url=LOKI_URL,
-    tags={"application": "smart-autoscaler"},
-    version="1"
-)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(), loki_handler]
-)
+def check_vm_connection():
+    """Check if VictoriaMetrics is reachable"""
+    try:
+        response = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": "up"}, timeout=5)
+        return response.status_code == 200
+    except Exception as e:
+        print(f" VM connection failed: {e}")
+        return False

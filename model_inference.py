@@ -126,11 +126,8 @@ def predict_scaling_action(input_row, seq_input, service_name=None):
     Returns:
         str: 'scale_down', 'no_change', or 'scale_up'
     """
-    if service_name is None:
-        # Try to get service name from environment or config
-        pod_name = os.getenv("TARGET_DEPLOYMENT", "adservice")
-    else:
-        pod_name = service_name
+    pod_name = service_name or os.getenv("TARGET_DEPLOYMENT", "adservice")
+
 
     try:
         manager = ModelManager(pod_name)

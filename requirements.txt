@@ -10,7 +10,8 @@ seaborn>=0.12
 joblib>=1.2
 tqdm>=4.65
 aiohttp>=3.8
-sklearn.preprocessing
-logging-loki
+sklearn
+prometheus_client
+
 # asyncio is part of the Python stdlib, no need to list it
 
