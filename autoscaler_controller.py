@@ -2,9 +2,11 @@ import time
 import os
 from datetime import datetime, timedelta
 import numpy as np
+import requests
 from pod_config import AUTO_SCALE_SERVICES
 from model_inference import predict_scaling_action
 from k8s_scaler import apply_k8s_scaling
+
 from utils import (
     fetch_pod_metrics,
     build_feature_vector,
@@ -16,7 +18,37 @@ from utils import (
     fetch_historical_data
 )
 
+GRAFANA_URL    = os.getenv("GRAFANA_URL", "http://grafana.monitoring.svc:3000")
+GRAFANA_API_KEY= os.getenv("GRAFANA_API_KEY", "")
+
+def send_grafana_annotation(text, tags=None):
+    """Send annotation to Grafana."""
+    grafana_url = GRAFANA_URL
+    api_key = os.getenv(GRAFANA_API_KEY)
+    
+    if not api_key:
+        return
+        
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "text": text,
+        "tags": tags or []
+    }
+    
+    try:
+        requests.post(f"{grafana_url}/api/annotations", headers=headers, json=data)
+    except Exception as e:
+        print(f"Failed to send Grafana annotation: {e}")
+
 print(" Starting Smart AutoScaler Controller")
+# Alert thresholds
+MAX_ALLOWED_REPLICAS = 10
+MIN_ALLOWED_REPLICAS = 1
+CONFIDENCE_THRESHOLD = 0.6  # confidence range [0-1]
 
 # Load history at startup
 fetch_pod_metrics.history = load_history()
@@ -99,7 +131,18 @@ try:
                     record_live_data(pod_name, raw_metrics, decision)
 
                 # Step 7: Apply Kubernetes scaling
+                # Scaling safeguard
+                if new_replicas > MAX_ALLOWED_REPLICAS:
+                    logging.warning(f"[{pod_name}] Scaling prevented: target replicas {new_replicas} > max {MAX_ALLOWED_REPLICAS}")
+                    continue
+                if new_replicas < MIN_ALLOWED_REPLICAS:
+                    logging.warning(f"[{pod_name}] Scaling prevented: target replicas {new_replicas} < min {MIN_ALLOWED_REPLICAS}")
+                    continue
                 apply_k8s_scaling(pod_name, namespace, decision)
+                send_grafana_annotation(
+                    f"{pod_name} scaled to {new_replicas} replicas",
+                    tags=["autoscaling", pod_name]
+                )
 
             except KeyError as ke:
                 print(f" Invalid config: missing '{ke}'")
@@ -121,5 +164,4 @@ except KeyboardInterrupt:
         save_history(fetch_pod_metrics.history)
         print(" Final history saved.")
     else:
-        print(" Retraining disabled — no history written")
         print(" Retraining disabled — no history written")

@@ -1,0 +1,29 @@
+# Inside autoscaler_controller.py loop
+
+raw_metrics = fetch_pod_metrics(pod_name, namespace)
+input_row = build_feature_vector(raw_metrics, feature_names)
+
+# Build sequence for LSTM
+if not hasattr(fetch_pod_metrics, 'history'):
+    fetch_pod_metrics.history = {}
+
+key = f"{namespace}/{pod_name}"
+if key not in fetch_pod_metrics.history:
+    fetch_pod_metrics.history[key] = []
+
+fetch_pod_metrics.history[key].append(input_row)
+if len(fetch_pod_metrics.history[key]) > seq_length + 10:
+    fetch_pod_metrics.history[key] = fetch_pod_metrics.history[key][-seq_length - 10:]
+
+# Create sequence input for LSTM
+seq_input = create_sequence(np.array(fetch_pod_metrics.history[key]), seq_length)
+if len(seq_input) == 0:
+    print(f"⏳ Waiting — collecting initial data for {pod_name}")
+    continue
+
+# Predict scale action
+decision = predict_scaling_action(input_row, seq_input)
+print(f"🧠 Decision for {pod_name}: {decision}")
+
+# Record data after prediction
+record_live_data(pod_name, raw_metrics, decision)

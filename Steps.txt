@@ -22,12 +22,6 @@ docker buildx create --use
 docker buildx build --platform linux/amd64 -t gcr.io/cairo-university-457016/autoscaling-controller:latest --push .
 docker push gcr.io/your-project/autoscaling-controller:latest
 
-# 🧪 Optional: Test Locally Using Emulation
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock --privileged tonistiigi/binfmt
-docker run --platform linux/amd64 -it gcr.io/cairo-university-457016/autoscaling-controller:latest sh
-
-c/usr/local/bin/python --version
-
 #🧪 Optional: Test Locally Using Emulation
 #If you're on Apple Silicon (M1/M2) and want to test the image locally in amd64 mode:
 
@@ -45,8 +39,12 @@ pip install pipreqs
 pipreqs /path
 
 
-#upload model
-kubectl cp ./models   monitoring/pvc-uploader:/models
+#copy upload model
+kubectl cp ./models   monitoring/smart-autoscaler:/data/models
+
+#stop pod
+kubectl scale deployment smart-autoscaler --replicas=0 -n monitoring
+
 
 #Make sure these are enabled:
 gcloud services enable container.googleapis.com

@@ -3,12 +3,18 @@ import numpy as np
 import pandas as pd
 import joblib
 import requests
+import logging
+from logging_loki import LokiHandler
 from datetime import datetime, timedelta
 
 # Global history dict
 history = {}    
 # VictoriaMetrics / Prometheus URL
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/query")
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428/api/v1/query")
+GRAFANA_URL    = os.getenv("GRAFANA_URL", "http://grafana.monitoring.svc:3000")
+LOKI_URL           = os.getenv("LOKI_URL", "http://loki.monitoring.svc:3100/loki/api/v1/push")
+
+
 STEP_SECONDS = int(os.getenv("STEP_SECONDS", "60"))
 HISTORY_FILE = "/data/history.pkl"
 os.makedirs("/data", exist_ok=True)
@@ -37,6 +43,7 @@ def save_history(history):
 def query_vm(query):
     try:
         response = requests.get(PROMETHEUS_URL, params={'query': query}, timeout=5)
+        
         if response.status_code == 200:
             result = response.json().get('data', {}).get('result', [])
             if result:
@@ -150,5 +157,41 @@ def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS
         print(f" Historical fetch failed: {e}")
 
     # Use random fallback if all else fails
-    print("🧪 Using simulated history (no Prometheus/VictoriaMetrics data)")
+    print(" Using simulated history (no Prometheus/VictoriaMetrics data)")
     return [np.random.uniform(0.1, 0.9) for _ in range(seq_length)]
+
+
+def send_grafana_annotation(message, tags=None):
+    API_KEY = os.getenv("GRAFANA_API_KEY", "your_token_here")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+
+    payload = {
+        "text": message,
+        "tags": tags or [],
+        "time": int(time.time() * 1000)
+    }
+
+    try:
+        response = requests.post(f"{GRAFANA_URL}/api/annotations", json=payload, headers=headers)
+        response.raise_for_status()
+        logging.info(f" Grafana annotation sent: {message}")
+    except Exception as e:
+        logging.error(f" Failed to send annotation: {e}")
+
+
+
+loki_handler = LokiHandler(
+    url=LOKI_URL,
+    tags={"application": "smart-autoscaler"},
+    version="1"
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(), loki_handler]
+)

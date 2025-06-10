@@ -10,7 +10,7 @@ metadata:
   name: smart-autoscaler-job
   namespace: monitoring
 spec:
-  schedule: "*/1 * * * *"
+  schedule: "*/9 * * * *"
   jobTemplate:
     spec:
       template:

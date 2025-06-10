@@ -4,8 +4,11 @@ metadata:
   name: smart-autoscaler-global-config
   namespace: monitoring
 data:
-  PROMETHEUS_URL: "http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/query"
+  PROMETHEUS_URL: "http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428/api/v1/query"
   CHECK_INTERVAL_SECONDS: "60"
   RETRAIN_INTERVAL_MINUTES: "1440"  # Daily retraining
-  ENABLE_RETRAINING: "true"  # ← New flag here
+  ENABLE_RETRAINING: "false"  # ← New flag here
   LEARNING_DAYS: "10"
+  GRAFANA_API_KEY:
+  GRAFANA_URL:
+  LOKI:

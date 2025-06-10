@@ -1,0 +1,24 @@
+adservice
+cartservice
+checkoutservice
+currencyservice
+emailservice
+frontend
+loadgenerator
+paymentservice
+productcatalogservice
+recommendationservice
+redis-cart
+shippingservice
+
+    {"pod_name": "adservice", "namespace": "default"},
+    {"pod_name": "cartservice", "namespace": "default"},
+    {"pod_name": "checkoutservice", "namespace": "default"},
+    {"pod_name": "currencyservice", "namespace": "default"},
+    {"pod_name": "paymentservice", "namespace": "default"},
+    {"pod_name": "emailservice", "namespace": "default"},
+    {"pod_name": "frontend", "namespace": "default"},
+    {"pod_name": "productcatalogservice", "namespace": "default"},
+    {"pod_name": "recommendationservice", "namespace": "default"},
+    {"pod_name": "redis-cart", "namespace": "default"},
+    {"pod_name": "shippingservice", "namespace": "default"}

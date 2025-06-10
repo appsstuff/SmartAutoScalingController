@@ -1,0 +1,77 @@
++-----------------------------+
+|     Kubernetes Cluster      |
+|                             |
+|  - Prometheus / VictoriaMetrics |
+|  - Deployments              |
+|  - API Server               |
++------------+----------------+
+             |
+             | Uses
+             v
+
++-----------------------------+
+|       Autoscaler Pod        |
+|                             |
+|  - Runs autoscaler_controller.py |
+|  - Loads models + config    |
+|  - Scales target deployment |
++------------+----------------+
+             |
+             | Uses
+             v
+
++-----------------------------+
+|   autoscaler_controller.py  |
+|                             |
+|  - Main loop: fetch → predict → scale |
+|  - Uses ConfigMap settings |
+|  - Calls model_inference.py |
++------------+----------------+
+             |
+             | Depends on
+             v
+
++-----------------------------+
+|     model_inference.py      |
+|                             |
+|  - predict_scaling_action() |
+|  - Loads trained models:    |
+|      gpr_model.pkl         |
+|      xgb_model.json        |
+|      lstm_model.h5         |
+|  - Uses scaler.pkl         |
++------------+----------------+
+             |
+             | Uses
+             v
+
++-----------------------------+
+|        config_loader.py     |
+|                             |
+|  - Reads env vars           |
+|  - Fallback defaults        |
+|  - Shared across services   |
++------------+----------------+
+             |
+             | Gets data from
+             v
+
++-----------------------------+
+|          utils.py           |
+|                             |
+|  - fetch_pod_metrics()      |
+|  - build_feature_vector()   |
+|  - create_sequence()        |
+|  - record_live_data()       |
++------------+----------------+
+             |
+             | Trains with
+             v
+
++-----------------------------+
+|      retrain_models.py      |
+|                             |
+|  - Retrain XGBoost, GPR, LSTM |
+|  - Uses live_data.csv       |
+|  - Saves updated models     |
++-----------------------------+
