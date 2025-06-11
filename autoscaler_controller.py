@@ -2,12 +2,19 @@ import time
 import os
 from datetime import datetime
 import numpy as np
-import sklearn
 from pod_config import AUTO_SCALE_SERVICES
 from model_inference import predict_scaling_action
 from k8s_scaler import apply_k8s_scaling
 from prometheus_client import Gauge, start_http_server
-import requests
+import threading
+from flask import Flask, jsonify
+from config import (
+DECISION_GAUGE,
+CPU_USAGE_GAUGE ,
+MEM_USAGE_GAUGE,
+REQ_RATE_GAUGE,
+PROMETHEUS_PORT
+)
 
 from utils import (
     fetch_pod_metrics,
@@ -16,33 +23,52 @@ from utils import (
     create_sequence,
     validate_service_config,
     fetch_historical_data,
-    record_live_data
+    record_live_data,
+    check_vm_connection
 )
 
-def check_vm_connection():
-    try:
-        response = requests.get("http://localhost:8428/health")
-        return response.status_code == 200
-    except:
-        return False
+
+# ====== START HEALTH CHECK SERVER EARLY ======
+def create_health_check_server(port=8080):
+    app = Flask(__name__)
+    
+    @app.route('/healthz')
+    def health_check():
+        return jsonify({"status": "healthy"})
+        
+    @app.route('/ready')
+    def ready_check():
+        history_ready = len(fetch_pod_metrics.history) > 0
+        return jsonify({
+            "status": "healthy" if history_ready else "unhealthy",
+            "history_ready": history_ready
+        }), 200 if history_ready else 503
+
+    # Run Flask in background thread
+    threading.Thread(target=lambda: app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=False,
+        use_reloader=False
+    )).start()
+
+# Start health server before anything else
+print(" Starting health check server...")
+create_health_check_server(port=8080)
+print(" Health check server running on port 8080")
+# =============================================
+print(f"Test Connection .... {check_vm_connection()}")
 
 # Start Prometheus metrics server on port 8900
-
-print(f"🧠 Running with scikit-learn v{sklearn.__version__}, NumPy v{np.__version__}")
-start_http_server(8900)
+start_http_server(PROMETHEUS_PORT)
 # Define custom metrics
-DECISION_GAUGE = Gauge('autoscaler_decision', 'Last autoscaler decision', ['service'])
-CPU_USAGE_GAUGE = Gauge('autoscaler_cpu_usage', 'Current CPU usage from feature vector', ['service'])
-MEM_USAGE_GAUGE = Gauge('autoscaler_mem_usage', 'Current memory usage', ['service'])
-REQ_RATE_GAUGE = Gauge('autoscaler_req_rate', 'Request rate per second', ['service'])
-MODEL_CONFIDENCE_GAUGE = Gauge('autoscaler_model_confidence', 'Model prediction confidence', ['service'])
 
-print("📊 Prometheus metrics endpoint started at :9090")
+print(" Prometheus metrics endpoint started at :9090")
 
 try:
     while True:
         total = len(AUTO_SCALE_SERVICES)
-        print(f"\n🔄 Starting autoscaling round — {total} services")
+        print(f"\n Starting autoscaling round — {total} services")
 
         for idx, svc in enumerate(AUTO_SCALE_SERVICES):
             percent = int((idx + 1) / total * 100)
@@ -124,6 +150,11 @@ try:
                         decision_value,
                         {"service": pod_name, "action": decision}
                     )
+                    
+                        # After prediction
+                    decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
+                    DECISION_GAUGE.labels(service=pod_name).set(decision_value)
+
 
                     # Also log CPU, Mem, Req Rate
                     vm_success &= send_to_victoriametrics(
@@ -149,18 +180,17 @@ try:
                     else:
                         print(f"📊 Logged decision to VictoriaMetrics for {pod_name}")
 
-                # Step 7: Apply scaling
-                apply_k8s_scaling(pod_name, namespace, decision)
 
-                # After prediction
-                decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
-                DECISION_GAUGE.labels(service=pod_name).set(decision_value)
 
+            
                 # Log feature values
                 CPU_USAGE_GAUGE.labels(service=pod_name).set(raw_metrics["cpu_usage_lag_1"])
                 MEM_USAGE_GAUGE.labels(service=pod_name).set(raw_metrics["mem_usage"])
                 REQ_RATE_GAUGE.labels(service=pod_name).set(raw_metrics["req_rate"])    
                 record_live_data(pod_name, input_row, decision)
+
+                # Step 7: Apply scaling
+                apply_k8s_scaling(pod_name, namespace, decision)
 
             except KeyError as ke:
                 print(f" Invalid config: missing key '{ke}'")
@@ -171,3 +201,5 @@ try:
 
 except KeyboardInterrupt:
     print("\n Autoscaler stopped. Saving final history...")
+
+

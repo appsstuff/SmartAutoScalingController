@@ -6,12 +6,17 @@ from datetime import datetime
 from xgboost import XGBClassifier
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.preprocessing import StandardScaler
+import tensorflow as tf
 from tensorflow.keras.models import save_model, Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from pod_config import AUTO_SCALE_SERVICES
 from utils import create_sequence, fetch_historical_data, fetch_logged_decisions
+from config import (
+ENABLE_RETRAINING,
+MODELS_PATH
+)
 
-ENABLE_RETRAINING = os.getenv("ENABLE_RETRAINING", "false").lower() == "true"
+tf.config.optimizer.set_jit(True)
 
 
 class ModelTrainer:
@@ -23,7 +28,7 @@ class ModelTrainer:
         os.makedirs(self.model_dir, exist_ok=True)
 
     def load_data(self):
-        path = f"/data/live_data/{self.pod_name}_live_data.csv"
+        path = f"../data/live_data/{self.pod_name}_live_data.csv"
         if not os.path.exists(path):
             print(f"[WARN] No data found for {self.pod_name}")
             return None, None
@@ -31,11 +36,13 @@ class ModelTrainer:
         df = pd.read_csv(path)
         feature_columns = [
             "hour_of_day", "day_of_week", "cpu_usage_lag_1", "cpu_usage_lag_5",
-            "cpu_roll_mean_10", "mem_usage", "req_rate"
+            "cpu_roll_mean_10", "mem_usage", "req_rate",
+            "latency", "net_receive_KB", "net_transmit_KB", "pod_restarts", "pod_ready"
         ]
         X = df[feature_columns].values
         y = df["decision"].map({"scale_down": 0, "no_change": 1, "scale_up": 2}).values
         return X, y
+    
 
     def train_all(self):
         X, y = self.load_data()
@@ -87,13 +94,13 @@ class ModelTrainer:
 def train_gpr_model(X_train, y_train, pod_name):
     gpr = GaussianProcessRegressor()
     gpr.fit(X_train, y_train)
-    joblib.dump(gpr, f"models/gpr_model_{pod_name}.pkl")
+    joblib.dump(gpr, f"{MODELS_PATH}/gpr_model.pkl")
     print(f"🧠 GPR model retrained for {pod_name}")
 
 def train_xgb_model(X_train, y_train, pod_name):
     clf = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
     clf.fit(X_train, y_train)
-    clf.save_model(f"models/xgb_model_{pod_name}.json")
+    clf.save_model(f"{MODELS_PATH}/xgb_model.json")
     print(f"🧠 XGBoost model retrained for {pod_name}")
 
 def train_lstm_model(X_train, y_train, pod_name):
@@ -110,13 +117,13 @@ def train_lstm_model(X_train, y_train, pod_name):
     ])
     model.compile(optimizer='adam', loss='binary_crossentropy')
     model.fit(X_seq, y_train[-len(X_seq):], epochs=5, batch_size=16, verbose=0)
-    save_model(model, f"models/lstm_model_{pod_name}.h5")
+    save_model(model, f"{MODELS_PATH}/lstm_model.h5")
     print(f"🧠 LSTM model retrained for {pod_name}")
 
 def train_scaler(X_train, pod_name):
     scaler = StandardScaler()
     scaler.fit(X_train)
-    joblib.dump(scaler, f"models/scaler_model_{pod_name}.pkl")
+    joblib.dump(scaler, f"{MODELS_PATH}/scaler_model.pkl")
     print(f"🧠 Scaler retrained for {pod_name}")
     
  

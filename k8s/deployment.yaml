@@ -5,29 +5,50 @@ metadata:
   namespace: monitoring
   labels:
     app: smart-autoscaler
+    release: prometheus
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: smart-autoscaler
       target: development
+      release: prometheus
   template:
     metadata:
       labels:
         app: smart-autoscaler
         target: development
+        release: prometheus
     spec:
+      serviceAccountName: autoscaler-sa
       containers:
         - name: autoscaler
           image: gcr.io/cairo-university-457016/autoscaling-controller:latest
           command: ["python", "autoscaler_controller.py"]
           imagePullPolicy: Always
+          ports:
+          - containerPort: 9090
+            name: metrics
+          - containerPort: 8080
+            name: health
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
           envFrom:
             - configMapRef:
                 name: smart-autoscaler-global-config
           volumeMounts:
             - name: autoscaler-data
-              mountPath: /date
+              mountPath: /data
       volumes:
         - name: autoscaler-data
           persistentVolumeClaim:
@@ -37,13 +58,90 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: smart-autoscaler-service
+  name: smart-autoscaler
   namespace: monitoring
 spec:
   selector:
     app: smart-autoscaler
+    
   ports:
     - protocol: TCP
-      port: 8900
-      targetPort: 8900
-  type: ClusterIP            
+      port: 9090
+      targetPort: 9090
+      name: metrics
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: smart-autoscaler-monitor
+  namespace: monitoring
+  labels:
+    release: prometheus
+    app: smart-autoscaler
+   
+spec:
+  jobLabel: smart-autoscaler
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+  selector:
+    matchLabels:
+      app: smart-autoscaler
+  namespaceSelector:
+    matchNames:
+          - monitoring
+
+--- 
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: smart-autoscaler-pod-monitor
+  namespace: monitoring
+  labels:
+    release: prometheu
+    app: smart-autoscaler
+spec:
+  jobLabel: smart-autoscaler
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+  selector:
+    matchLabels:
+      app: smart-autoscaler
+  namespaceSelector:
+    matchNames:
+      - monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: autoscaler-cluster-role
+  namespace: monitoring
+rules:
+  - apiGroups: ["", "apps"]
+    resources: ["deployments", "replicasets", "pods"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: autoscaler-role-binding
+  namespace: monitoring
+subjects:
+  - kind: ServiceAccount
+    name: autoscaler-sa
+    namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: autoscaler-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: autoscaler-sa
+  namespace: monitoring

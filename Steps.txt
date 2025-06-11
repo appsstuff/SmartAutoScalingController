@@ -17,7 +17,7 @@ pipreqs /path
 
 
 #copy upload model
-kubectl cp ./data/models   monitoring/smart-autoscaler-job-29159565-2w2hn:/data/
+kubectl cp ./data/models   monitoring/smart-autoscaler-668f86bbfb-psbqt:/data/
 
 #stop pod
 kubectl scale deployment smart-autoscaler --replicas=0 -n monitoring

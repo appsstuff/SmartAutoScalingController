@@ -1,57 +1,79 @@
 import os
 import numpy as np
 import pandas as pd
-import joblib
 import requests
 from datetime import datetime, timedelta
-
+from prometheus_client import start_http_server, Gauge, Enum
+from config import (
+PROMETHEUS_URL,
+STEP_SECONDS ,
+LEARNING_DAYS,
+HISTORICAL_CPU_USAGE_FALLBACK
+)
 # Global history dict
 history = {}
-
-# VictoriaMetrics / Prometheus URL
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://34.73.82.105:8428")
-STEP_SECONDS = int(os.getenv("STEP_SECONDS", "60"))
-HISTORY_FILE = "/data/history.pkl"
-LEARNING_DAYS = int(os.getenv("LEARNING_DAYS", "10"))
-HISTORICAL_CPU_USAGE_FALLBACK = [np.random.uniform(0.1, 0.9) for _ in range(50)]  # Fallback sequence length
-
-
 
 def query_vm(query):
     try:
         response = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={'query': query}, timeout=5)
         if response.status_code == 200:
             result = response.json().get('data', {}).get('result', [])
-            if result:
+            if result and 'value' in result[0]:
                 return float(result[0]['value'][1])
     except Exception as e:
-        print(f"VM query failed: {e}")
+        print(f"⚠️ VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
 def fetch_pod_metrics(pod_name="adservice", namespace="default"):
     now = datetime.now()
-    return {
-        "hour_of_day": now.hour,
-        "day_of_week": now.weekday(),
-        "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'),
-        "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}} offset 5m'),
-        "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}[10m])'),
-        "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container_name="{pod_name}"}}') / (1024 * 1024),
-        "req_rate": query_vm(f'rate(http_requests_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])'),
-        "latency": query_vm(f'histogram_quantile(0.95, sum(rate(http_request_latencies_bucket{{le="+Inf", namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])) by (le))'),
-        "net_receive_KB": query_vm(f'rate(container_network_receive_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
-        "net_transmit_KB": query_vm(f'rate(container_network_transmit_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
-        "pod_restarts": query_vm(f'kube_pod_container_status_restarts_total{{namespace="{namespace}", container="{pod_name}"}}'),
-        "pod_ready": query_vm(f'kube_pod_container_status_ready{{namespace="{namespace}", container="{pod_name}"}}')
-    }
+    try:
+        return {
+            "hour_of_day": now.hour,
+            "day_of_week": now.weekday(),
+            "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'),
+            "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}} offset 5m'),
+            "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}[10m])'),
+            "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container_name="{pod_name}"}}') / (1024 * 1024),
+            "req_rate": query_vm(f'rate(http_requests_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])'),
+            "latency": query_vm(f'histogram_quantile(0.95, sum(rate(http_request_latencies_bucket{{le="+Inf", namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])) by (le))'),
+            "net_receive_KB": query_vm(f'rate(container_network_receive_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
+            "net_transmit_KB": query_vm(f'rate(container_network_transmit_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
+            "pod_restarts": query_vm(f'kube_pod_container_status_restarts_total{{namespace="{namespace}", container="{pod_name}"}}'),
+            "pod_ready": query_vm(f'kube_pod_container_status_ready{{namespace="{namespace}", container="{pod_name}"}}')
+        }
+    except Exception as e:
+        print(f"⚠️ Failed to fetch real metrics — using fallback: {e}")
+        return {
+            "hour_of_day": datetime.now().hour,
+            "day_of_week": datetime.now().weekday(),
+            "cpu_usage_lag_1": np.random.uniform(0.1, 0.9),
+            "cpu_usage_lag_5": np.random.uniform(0.1, 0.9),
+            "cpu_roll_mean_10": np.random.uniform(0.1, 0.9),
+            "mem_usage": np.random.uniform(200, 300),
+            "req_rate": np.random.uniform(5, 20)
+        }     
 
 def build_feature_vector(metrics, feature_list):
     return np.array([metrics[f] for f in feature_list if f in metrics])
 
 def create_sequence(data, seq_length):
+    """
+    Creates sequences for LSTM input.
+    Returns empty array if not enough data or data is ragged
+    """
     if len(data) < seq_length:
         return np.array([])
-    return np.array([data[i:i+seq_length] for i in range(len(data) - seq_length + 1)])
+    
+    # Ensure all items are same shape
+    try:
+        arr = np.array([np.array(row).flatten() for row in data])
+        if len(arr.shape) != 2 or arr.shape[1] == 0:
+            raise ValueError("Invalid feature vector shape")
+        
+        return np.array([arr[i:i+seq_length] for i in range(len(arr) - seq_length + 1)])
+    except Exception as e:
+        print(f" Invalid sequence: {e}")
+        return np.array([])
 
 def record_live_data(pod_name, input_row, decision):
     # Also send to VictoriaMetrics
@@ -109,24 +131,16 @@ def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS
 
 def send_to_victoriametrics(metric_name, value, labels):
     """
-    Send custom metric to VictoriaMetrics using JSON line format
-    
-    Args:
-        metric_name (str): Name of the metric
-        value (float): Value to store
-        labels (dict): Labels like {"service": "adservice", "action": "scale_up"}
-    
-    Returns:
-        bool: True if success
+    Send custom metric to VictoriaMetrics using JSON line forma
     """
     try:
         # Timestamp in milliseconds
-        timestamp = int(datetime.now().timestamp() * 1000)
+        now = datetime.now()
+        timestamp = int(now.timestamp() * 1000)  # milliseconds
 
         # Format labels properly
+        # Validate labels
         label_str = ",".join([f'{k}="{v}"' for k, v in labels.items()])
-        
-        # Build line in VictoriaMetrics format
         line = f"{metric_name}{{{label_str}}} {value} {timestamp}"
 
         # Use correct VM import endpoint
@@ -136,21 +150,20 @@ def send_to_victoriametrics(metric_name, value, labels):
             "Content-Type": "text/plain",
             "User-Agent": "SmartAutoScaler/1.0"
         }
-
-        response = requests.post(url, data=line, headers=headers, timeout=5)
         
-        # Accept both 200 and 204 as valid responses
-        if response.status_code in [200, 204]:
-            print(f"✅ Sent to VictoriaMetrics: {line}")
+        response = requests.post(url, data=line, headers=headers, timeout=5)
+
+        if response.status_code == 204:
+            print(f"✅ [VM] Sent: {line}")
             return True
         else:
-            print(f"⚠️ Failed to write to VM: {response.status_code}, expected 200 or 204")
+            print(f"⚠️ [VM] Unexpected status: {response.status_code}, expected 204")
             print(f"🪲 Response: {response.text}")
             return False
-            
     except Exception as e:
-        print(f"🚫 Could not reach VictoriaMetrics: {e}")
+        print(f"🚫 [VM] Could not reach VictoriaMetrics: {e}")
         return False
+
 def fetch_logged_decisions(pod_name, namespace="default", days=7):
     end_time = datetime.now()
     start_time = end_time - timedelta(days=days)

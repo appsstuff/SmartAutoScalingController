@@ -1,17 +1,28 @@
+# Core ML/Data packages
 pandas>=1.5
-numpy>=1.22,<1.24        # ✅ Compatible with TF 2.12
-scikit-learn>=1.3
-xgboost>=1.7
-tensorflow==2.12.0       # ✅ ARM64 support (e.g., Apple Silicon)
+numpy==1.23.5
+scikit-learn>=1.3,<1.4
+
+xgboost==1.7.6
+
+# TensorFlow (for LSTM model)
+tensorflow==2.15.0  # Works natively on macOS M1
+
+# Kubernetes client for autoscaler logic
 kubernetes>=26.1
-requests>=2.31
+
+# Visualization and monitoring
 matplotlib>=3.7
 seaborn>=0.12
-joblib>=1.2
+prometheus-client
+
+# Utilities
+requests>=2.31
 tqdm>=4.65
 aiohttp>=3.8
-sklearn
-prometheus_client
 
-# asyncio is part of the Python stdlib, no need to list it
-
+# Model I/O
+onnxruntime
+flask==3.1.1
+joblib==1.1.1
+skops==0.2.0
