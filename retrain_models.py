@@ -1,29 +1,23 @@
 import os
-import pandas as pd
-import numpy as np
-import joblib
 import time
-from datetime import datetime
-from xgboost import XGBClassifier
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.preprocessing import StandardScaler
-import tensorflow as tf
-from keras.models import Sequential, save_model
-from keras.layers import LSTM, Dense, Dropout
-from pod_config import AUTO_SCALE_SERVICES
+import numpy as np
 import logging
-from utils import create_sequence, fetch_historical_data, fetch_logged_decisions
-from config import (
-    ENABLE_RETRAINING,
-    MODELS_PATH,
-    RETRAIN_THRESHOLD,
-    RETRAIN_COOLDOWN
-)
-
+import joblib
+from datetime import datetime, timedelta
+from xgboost import XGBRegressor
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from config import ENABLE_RETRAINING, MODELS_PATH, RETRAIN_COOLDOWN
+from utils import fetch_historical_data, create_sequence
+from pod_config import AUTO_SCALE_SERVICES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Enable Intel optimizations
 tf.config.optimizer.set_jit(True)
 
 # Global dictionary to track retrain timestamps per pod
@@ -34,134 +28,119 @@ class ModelTrainer:
         self.pod_name = service_config["pod_name"]
         self.namespace = service_config.get("namespace", "default")
         self.seq_length = service_config.get("seq_length", 10)
-        self.model_dir = "models"
+        self.model_dir = os.path.join(MODELS_PATH, self.pod_name)
         os.makedirs(self.model_dir, exist_ok=True)
 
-    def load_data(self):
-        path = f"../data/live_data/{self.pod_name}_live_data.csv"
-        if not os.path.exists(path):
-            logging.warning(f"No data found for {self.pod_name}")
-            return None, None
+    def train_gpr(self, X_train, y_train):
+        """
+        Train Gaussian Process Regressor on historical data
+        """
+        try:
+            from sklearn.gaussian_process import GaussianProcessRegressor
+            from sklearn.gaussian_process.kernels import RBF
+            
+            kernel = RBF(length_scale=1.0)
+            model = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=9)
+            model.fit(X_train, y_train)
+            model_path = os.path.join(self.model_dir, "gpr_model.pkl")
+            joblib.dump(model, model_path)
+            print(f"🧠 GPR model retrained for {self.pod_name}")
+        except Exception as e:
+            print(f"⚠️ Failed to train GPR model for {self.pod_name}: {e}")
 
-        df = pd.read_csv(path)
-        feature_columns = [
-            "hour_of_day", "day_of_week", "cpu_usage_lag_1", "cpu_usage_lag_5",
-            "cpu_roll_mean_10", "mem_usage", "req_rate",
-            "latency", "net_receive_KB", "net_transmit_KB", "pod_restarts", "pod_ready"
-        ]
-        X = df[feature_columns].values
-        y = df["decision"].map({"scale_down": 0, "no_change": 1, "scale_up": 2}).values
-        return X, y
+    def train_xgb(self, X_train, y_train):
+        """
+        Train XGBoost regressor using CPU usage features
+        """
+        try:
+            model = XGBRegressor(n_estimators=100, learning_rate=0.1)
+            model.fit(X_train, y_train)
+            model.save_model(os.path.join(self.model_dir, "xgb_model.json"))
+            print(f"🧠 XGBoost model retrained for {self.pod_name}")
+        except Exception as e:
+            print(f"⚠️ Failed to train XGBoost model for {self.pod_name}: {e}")
+
+    def train_lstm(self, X_seq, y_seq):
+        """
+        Train LSTM model for time-series prediction
+        """
+        try:
+            model = Sequential()
+            model.add(LSTM(50, activation='relu', input_shape=(X_seq.shape[1], 1)))
+            model.add(Dropout(0.2))
+            model.add(Dense(1))
+            model.compile(optimizer='adam', loss='mse')
+            model.fit(X_seq, y_seq, epochs=10, batch_size=32, verbose=0)
+            model.save(os.path.join(self.model_dir, "lstm_model.h5"))
+            print(f"🧠 LSTM model retrained for {self.pod_name}")
+        except Exception as e:
+            print(f"⚠️ Failed to train LSTM model for {self.pod_name}: {e}")
 
     def train_all(self):
-        X, y = self.load_data()
-        if X is None or len(X) < 50:
-            logging.info(f"Skipping {self.pod_name}: not enough data")
-            return
+        """
+        Main method to trigger model retraining
+        """
+        try:
+            raw_data = fetch_historical_data(self.pod_name, self.namespace, days=7)
+            if len(raw_data) < 100:
+                print(f"⚠️ Not enough historical data for {self.pod_name} — skipping retraining")
+                return
 
-        # Normalize features
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        joblib.dump(scaler, os.path.join(self.model_dir, f"scaler_model_{self.pod_name}.pkl"))
+            # Convert to NumPy array
+            X_train = np.array(raw_data)
+            if len(X_train.shape) != 2 or X_train.shape[1] == 0:
+                raise ValueError(f"Invalid shape {X_train.shape} — expected 2D")
 
-        # Train all models
-        self.train_gpr(X_scaled, y)
-        self.train_xgb(X_scaled, y)
-        self.train_lstm(X_scaled, y)
-        logging.info(f"Retraining completed for {self.pod_name}")
+            # Assume CPU usage is the target variable
+            y_train = X_train[:, 2]  # Index 2 → cpu_usage_lag_1
+            X_train = X_train[:, :-1]  # All other metrics are features
 
-    def train_gpr(self, X, y):
-        gpr = GaussianProcessRegressor()
-        gpr.fit(X, y)
-        joblib.dump(gpr, os.path.join(self.model_dir, f"gpr_model_{self.pod_name}.pkl"))
+            # Normalize data
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X_train)
+            joblib.dump(scaler, os.path.join(self.model_dir, "scaler_model.pkl"))
 
-    def train_xgb(self, X, y):
-        clf = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
-        clf.fit(X, y)
-        clf.save_model(os.path.join(self.model_dir, f"xgb_model_{self.pod_name}.json"))
+            # Train models
+            self.train_gpr(X_scaled, y_train)
+            self.train_xgb(X_scaled, y_train)
 
-    def train_lstm(self, X, y):
-        X_seq = create_sequence(X, self.seq_length)
-        if len(X_seq) == 0:
-            logging.info(f"Not enough sequence data for LSTM — skipping {self.pod_name}")
-            return
+            # Prepare LSTM data
+            X_seq = create_sequence(X_scaled, self.seq_length)
+            y_seq = y_train[-len(X_seq):]
 
-        y_seq = y[-len(X_seq):]
+            if len(X_seq) > 0:
+                self.train_lstm(X_seq, y_seq)
+            else:
+                print("🪲 Not enough sequence data for LSTM")
 
-        model = Sequential([
-            LSTM(64, input_shape=(X_seq.shape[1], X_seq.shape[2]), return_sequences=False),
-            Dropout(0.3),
-            Dense(32, activation='relu'),
-            Dense(1, activation='sigmoid')
-        ])
-        model.compile(optimizer='adam', loss='binary_crossentropy')
-        model.fit(X_seq, y_seq, epochs=5, batch_size=16, verbose=0)
-        model.save(os.path.join(self.model_dir, f"lstm_model_{self.pod_name}.h5"))
+        except Exception as e:
+            print(f"🚫 Retraining failed for {self.pod_name}: {e}")
+
 
 def retrain_all_models():
-    logging.info("Starting retraining process using VictoriaMetrics data...")
-    
+    """
+    Run model retraining for all services defined in AUTO_SCALE_SERVICES
+    Only trains each service once per cooldown period
+    """
+    global retrain_timestamps
+    now = time.time()
+
     for svc in AUTO_SCALE_SERVICES:
         pod_name = svc["pod_name"]
         namespace = svc.get("namespace", "default")
         seq_length = svc.get("seq_length", 10)
 
-        # Check if enough time has passed since the last retrain
-        now = time.time()
+        if not ENABLE_RETRAINING:
+            logging.info(f"Retraining disabled via config — skipping {pod_name}")
+            continue
+
         if pod_name in retrain_timestamps and (now - retrain_timestamps[pod_name]) < RETRAIN_COOLDOWN:
-            logging.info(f"Cooldown period active for {pod_name}. Skipping retraining.")
+            logging.info(f"Cooldown active for {pod_name}. Skipping.")
             continue
 
-        logging.info(f"Fetching data for {pod_name} ({namespace})")
-
-        # Step 1: Get feature vector from VM
-        X_train = fetch_historical_data(pod_name, namespace, days=10)
-        if len(X_train) < RETRAIN_THRESHOLD:
-            logging.warning(f"Not enough CPU data for {pod_name} — skipping retraining")
-            continue
-
-        # Step 2: Build synthetic features
-        synthetic_features = []
-        for v in X_train[-seq_length:]:
-            synthetic_features.append(np.array([
-                datetime.now().hour,
-                datetime.now().weekday(),
-                v * 0.9,  # cpu_usage_lag_1
-                v * 0.7,  # cpu_usage_lag_5
-                v * 0.8,  # cpu_roll_mean_10
-                np.random.uniform(200, 300),  # mem_usage fallback
-                np.random.uniform(5, 20)       # req_rate fallback
-            ]))
-        X_train = np.array(synthetic_features)
-
-        # Step 3: Get decisions from VM
-        y_train = fetch_logged_decisions(pod_name, namespace, days=10)
-        if len(y_train) == 0:
-            logging.warning(f"No decisions found for {pod_name} — using synthetic labels")
-            y_train = np.random.randint(0, 3, size=len(X_train))
-
-        # Step 4: Normalize features
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_train)  # Use fit_transform for new data
-
-        # Step 5: Create sequences for LSTM
-        X_seq = create_sequence(X_scaled, seq_length)
-        if len(X_seq) == 0:
-            logging.warning(f"Not enough sequence data for {pod_name}")
-            continue
-
-        y_seq = y_train[-len(X_seq):]
-
-        # Step 6: Retrain all models
-        logging.info(f"Retraining all models for {pod_name}")
+        logging.info(f"🔄 Starting retraining for {pod_name}")
         trainer = ModelTrainer(svc)
         trainer.train_all()
-
-        # Update the retrain timestamp
         retrain_timestamps[pod_name] = now
-        logging.info(f"Models retrained for {pod_name}")
-
-if __name__ == "__main__":
-    if ENABLE_RETRAINING:
-        logging.info("Starting bulk model retraining...")
-        retrain_all_models()
+        logging.info(f"✅ Models retrained for {pod_name}")

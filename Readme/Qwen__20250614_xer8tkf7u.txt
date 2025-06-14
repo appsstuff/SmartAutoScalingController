@@ -1,0 +1,16 @@
+SmartAutoScalingController/
+│
+├– autoscaler_controller.py   ← Main loop – generates decisions
+├– metrics_server.py          ← ✅ Exposes /metrics endpoint
+├– model_inference.py         ← Hybrid policy engine – uses GPR/XGBoost/LSTM
+├– utils.py                   ← Includes query_vm(), fetch_pod_metrics(), send_to_victoriametrics()
+├– config_multi.py            ← List of services + thresholds
+└– Dockerfile                ← Builds image with dependencies
+
+models/
+├– adservice/
+│   ├── scaler_model.pkl
+│   ├── gpr_model.pkl
+│   ├── xgb_model.json
+│   └– lstm_model.h5
+...

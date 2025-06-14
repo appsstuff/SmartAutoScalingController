@@ -1,0 +1,4 @@
+# HELP autoscaler_decision Last autoscaler decision
+# TYPE autoscaler_decision gauge
+autoscaler_decision{service="adservice"} 2
+autoscaler_cpu_usage{service="cartservice"} 0.75

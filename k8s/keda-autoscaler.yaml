@@ -1,0 +1,17 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-adservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: adservice
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="adservice"}'

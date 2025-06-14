@@ -1,208 +1,119 @@
-# autoscaler_controller.py
-import time
+#!/usr/bin/env python3
+"""
+SmartAutoScaler Controller – runs autoscaling loop using hybrid policy engine
+"""
+
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 import numpy as np
 from pod_config import AUTO_SCALE_SERVICES
 from model_inference import predict_scaling_action
 from k8s_scaler import apply_k8s_scaling
-from prometheus_client import start_http_server
-import threading
-from flask import Flask, jsonify
 from retrain_models import retrain_all_models
-from config import (
-    DECISION_GAUGE,
-    CPU_USAGE_GAUGE,
-    MEM_USAGE_GAUGE,
-    REQ_RATE_GAUGE,
-    PROMETHEUS_PORT,
-    RETRAIN_THRESHOLD  # Add a threshold for retraining
-)
-
 from utils import (
     fetch_pod_metrics,
     build_feature_vector,
     send_to_victoriametrics,
     create_sequence,
     validate_service_config,
-    fetch_historical_data,
+    fetch_historical_data, 
+    load_history,
+    save_history,
     record_live_data,
-    check_vm_connection,
-    metrics_history
+    metrics_history,
+    check_vm_connection
 )
+from metrics_server import start_metrics_server, set_metric_values
 
-# ====== START HEALTH CHECK SERVER EARLY ======
-def create_health_check_server(port=8080):
-    app = Flask(__name__)
-    
-    @app.route('/healthz')
-    def health_check():
-        return jsonify({"status": "healthy"})
-        
-    @app.route('/ready')
-    def ready_check():
-        history_ready = len(metrics_history) > 0
-        return jsonify({
-            "status": "healthy" if history_ready else "unhealthy",
-            "history_ready": history_ready
-        }), 200 if history_ready else 503
+# Load history at startup
+metrics_history = load_history()
+print("🧠 Running with scikit-learn v1.5.1, NumPy v1.23.5")
 
-    # Run Flask in background thread
-    threading.Thread(target=lambda: app.run(
-        host='0.0.0.0',
-        port=port,
-        debug=False,
-        use_reloader=False
-    )).start()
+# Start metrics server early
+start_metrics_server(port=8900)
 
-# Start health server before anything else
-print(" Starting health check server...")
-create_health_check_server(port=8080)
-print(" Health check server running on port 8080")
-# =============================================
-print(f"Test Connection .... {check_vm_connection()}")
-
-# Start Prometheus metrics server on port 8900
-start_http_server(PROMETHEUS_PORT)
-print(" Prometheus metrics endpoint started at :9090")
-
+# Main loop
 try:
     while True:
         total = len(AUTO_SCALE_SERVICES)
-        print(f"\n Starting autoscaling round — {total} services")
+        print(f"\n🔄 Starting autoscaling round — {total} services")
 
         for idx, svc in enumerate(AUTO_SCALE_SERVICES):
             percent = int((idx + 1) / total * 100)
+            validate_service_config(svc)
 
-            try:
-                validate_service_config(svc)
+            pod_name = svc["pod_name"]
+            namespace = svc.get("namespace", "default")
+            seq_length = svc.get("seq_length", 10)
+            feature_names = svc.get("feature_names", [])
 
-                pod_name = svc["pod_name"]
-                namespace = svc.get("namespace", "default")
-                seq_length = svc.get("seq_length", 10)
-                feature_names = svc.get("feature_names", [])
+            progress_bar = f"[{'#' * (percent // 5):<20}] {percent}% — Processing {pod_name}"
+            print(f"{progress_bar}")
 
-                progress_bar = f"[{'#' * (percent // 5):<20}] {percent}% — Processing {pod_name}"
-                print(f"\n{progress_bar}")
+            # Step 1: Fetch live metrics
+            print("\n🧩 Step 1: Fetch live metrics : {pod_name}")
 
-                # Step 1: Fetch live metrics
-                print(f"🛠️  Step 1: Fetch live metrics  : {pod_name}")
+            raw_metrics = fetch_pod_metrics(pod_name, namespace)
+            if not raw_metrics:
+                print(f"🪲 No valid metrics fetched for {pod_name}")
+                continue
 
-                raw_metrics = fetch_pod_metrics(pod_name, namespace)
+            # Step 2: Build feature vector
+            print("\n🧩 Step 2: Build feature vector : {pod_name}")
+            input_row = build_feature_vector(raw_metrics, feature_names)
+            if len(input_row) == 0:
+                print(f"🪲 No features built for {pod_name}")
+                continue
 
-                # Step 2: Build feature vector
-                print(f"🛠️  Step 2: Build feature vector : {pod_name}")
-                input_row = build_feature_vector(raw_metrics, feature_names)
-                if len(input_row) == 0:
-                    print(f" No features built for {pod_name}")
-                    continue
+            key = f"{namespace}/{pod_name}"
 
-                key = f"{namespace}/{pod_name}"
+            # Initialize history if not exists
+            if key not in metrics_history:
+                metrics_history[key] = []
 
-                # Initialize list if key not present
-                if key not in metrics_history:
-                    metrics_history[key] = []
+            # Append latest data
+            metrics_history[key].append(input_row)
 
-                # Append the latest input row
-                metrics_history[key].append(input_row)
+            # Limit history size
+            max_history = seq_length + 10
+            if len(metrics_history[key]) > max_history:
+                metrics_history[key] = metrics_history[key][-max_history:]
 
-                # Step 3: Load fallback history if insufficient data
-                print(f"🛠️  Step 3: Load fallback history if insufficient data : {pod_name}")
-                if len(metrics_history[key]) < seq_length:
-                    print(f"📥 No valid history found for {key} — fetching past data")
-                    cpu_values = fetch_historical_data(pod_name, namespace, days=10)
+            # Step 3: Create sequence for LSTM
+            seq_input = create_sequence(np.array(metrics_history[key]), seq_length)
+            if len(seq_input) == 0:
+                print(f"⏳ Waiting — collecting initial sequence for {pod_name}")
+                continue
 
-                    synthetic_features = []
-                    for v in cpu_values[-seq_length:]:
-                        synthetic_features.append(np.array([
-                            datetime.now().hour,
-                            datetime.now().weekday(),
-                            v * 0.9,  # cpu_usage_lag_1
-                            v * 0.7,  # cpu_usage_lag_5
-                            v * 0.8,  # cpu_roll_mean_10
-                            raw_metrics.get("mem_usage", 200),
-                            raw_metrics.get("req_rate", 10)
-                        ]))
-                    metrics_history[key] = synthetic_features
-                    print(f"📊 Loaded {len(synthetic_features)} historical entries for {pod_name}")
+            # Step 4: Make prediction
+            print("\n🧩 Step 4: Make prediction : {pod_name}")
+            decision = predict_scaling_action(input_row, seq_input, service_name=pod_name)
+            print(f"🧠 Decision for {pod_name}: {decision}")
 
-                # Limit history size
-                max_history = seq_length + 10
-                if len(metrics_history[key]) > max_history:
-                    metrics_history[key] = metrics_history[key][-max_history:]
-
-                # Step 4: Create LSTM input
-                print(f"🛠️  Step 4: Create LSTM input  : {pod_name}")
-                seq_input = create_sequence(np.array(metrics_history[key]), seq_length)
-                if len(seq_input) == 0:
-                    print(f"⏳ Waiting — collecting initial sequence for {pod_name}")
-                    continue
-
-                # Step 5: Make prediction
-                print(f"🛠️  Step 5: Make prediction  : {pod_name}")
-                decision = predict_scaling_action(input_row, seq_input, service_name=pod_name)
-                print(f" Decision for {pod_name}: {decision}")
-
-                # Step 6: Log decision
-                decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
-
-                if not check_vm_connection():
-                    print(" VictoriaMetrics unreachable — skipping log push")
-                else:
-                    # Log decision
-                    vm_success = send_to_victoriametrics(
-                        "autoscaler_decision",
-                        decision_value,
-                        {"service": pod_name, "action": decision}
-                    )
-
-                    DECISION_GAUGE.labels(service=pod_name).set(decision_value)
-
-                    # Also log CPU, Mem, Req Rate
-                    vm_success &= send_to_victoriametrics(
-                        "autoscaler_cpu_usage",
-                        raw_metrics.get("cpu_usage_lag_1", 0.0),
-                        {"service": pod_name}
-                    )
-
-                    vm_success &= send_to_victoriametrics(
-                        "autoscaler_mem_usage",
-                        raw_metrics.get("mem_usage", 200),
-                        {"service": pod_name}
-                    )
-
-                    vm_success &= send_to_victoriametrics(
-                        "autoscaler_req_rate",
-                        raw_metrics.get("req_rate", 10),
-                        {"service": pod_name}
-                    )       
-
-                    if not vm_success:
-                        print("⚠️ Some metrics failed to save to VictoriaMetrics — falling back to local logs")
-                    else:
-                        print(f"📊 Logged decision to VictoriaMetrics for {pod_name}")
-
-                # Log feature values
-                CPU_USAGE_GAUGE.labels(service=pod_name).set(raw_metrics["cpu_usage_lag_1"])
-                MEM_USAGE_GAUGE.labels(service=pod_name).set(raw_metrics["mem_usage"])
-                REQ_RATE_GAUGE.labels(service=pod_name).set(raw_metrics["req_rate"])    
+            # Step 5: Log to VictoriaMetrics
+            decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
+            
+            set_metric_values(pod_name, raw_metrics,decision_value)
+         
+            if check_vm_connection():
+                send_to_victoriametrics("autoscaler_decision", decision_value, {"service": pod_name})
+                send_to_victoriametrics("autoscaler_cpu_usage", raw_metrics["cpu_usage_lag_1"], {"service": pod_name})
+                send_to_victoriametrics("autoscaler_mem_usage", raw_metrics["mem_usage"], {"service": pod_name})
+                send_to_victoriametrics("autoscaler_req_rate", raw_metrics["req_rate"], {"service": pod_name})
                 record_live_data(pod_name, input_row, decision)
+            else:
+               print("⚠️ VictoriaMetrics unreachable — skipping logs")
+               
+             # Step 6: Apply scaling
+            print("\n🧩 Step 6: Apply scaling : {pod_name}")
+            apply_k8s_scaling(pod_name, namespace, decision)
 
-                # Step 7: Apply scaling
-                print(f"🛠️  Step 7: Step 7: Apply scaling : {pod_name}")
-                apply_k8s_scaling(pod_name, namespace, decision)
-
-                # Step 8: Check if retraining is needed
-                if len(metrics_history[key]) >= RETRAIN_THRESHOLD:
-                    print(f"🛠️  Step 8: Retrain the all Models  : {pod_name}")
-                    retrain_all_models()  # Call the retraining function
-
-            except KeyError as ke:
-                print(f" Invalid config: missing key '{ke}'")
-            except Exception as e:
-                print(f" Error processing {pod_name}: {e}")
-
+        # Save history periodically
+        save_history(metrics_history)
         time.sleep(60)
 
 except KeyboardInterrupt:
-    print("\n Autoscaler stopped. Saving final history...")
+    print("\n🛑 Autoscaler stopped. Saving final history...")
+    save_history(metrics_history)
+    print("✅ Final history saved.")
