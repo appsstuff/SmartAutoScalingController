@@ -139,12 +139,15 @@ def retrain_all_models():
             print(f"\n📦 Fetching data for {pod_name} ({namespace})")
 
             # Step 1: Get feature vector from VM
+            print(f"## Step 1: Get feature vector from VM {pod_name}")
+
             X_train = fetch_historical_data(pod_name, namespace, days=10)
             if len(X_train) < seq_length:
                 print(f"⚠️ Not enough CPU data for {pod_name} — skipping retraining")
                 continue
 
             # Step 2: Build synthetic features
+            print(f"## Step 2: Build synthetic features {pod_name}")
             synthetic_features = []
             for v in X_train[-seq_length:]:
                 synthetic_features.append(np.array([
@@ -159,6 +162,7 @@ def retrain_all_models():
             X_train = np.array(synthetic_features)
 
             # Step 3: Get decisions from VM
+            print(f"## Step 3: Get decisions from VM {pod_name}")
             y_train = fetch_logged_decisions(pod_name, namespace, days=10)
             if len(y_train) == 0:
                 print(f"⚠️ No decisions found for {pod_name} — using synthetic labels")
@@ -169,6 +173,7 @@ def retrain_all_models():
             X_scaled = scaler.transform(X_train)
 
             # Step 5: Create sequences for LSTM
+            print(f"## Step 5: Create sequences for LSTM {pod_name}")
             X_seq = create_sequence(X_scaled, seq_length)
             if len(X_seq) == 0:
                 print(f"🚫 Not enough sequence data for {pod_name}")
@@ -177,6 +182,7 @@ def retrain_all_models():
             y_seq = y_train[-len(X_seq):]
 
             # Step 6: Retrain all models
+            print(f"## Step 6: Retrain all models {pod_name}")
             train_gpr_model(X_scaled, y_train, pod_name)
             train_xgb_model(X_scaled, y_train, pod_name)
             train_lstm_model(X_seq, y_seq, pod_name)

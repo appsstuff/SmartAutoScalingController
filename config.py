@@ -2,9 +2,12 @@ import os
 import numpy as np
 from prometheus_client import start_http_server, Gauge
 
-PROMETHEUS_PORT = os.getenv("PROMETHEUS_PORT",9090)
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://34.73.82.105:8428")
+PROMETHEUS_PORT = int(os.getenv("PROMETHEUS_PORT","8428"))
 STEP_SECONDS = int(os.getenv("STEP_SECONDS", "60"))
+
+PROMETHEUS_DOMAIN = os.getenv("PROMETHEUS_DOMAIN", "http://34.73.82.105:")
+PROMETHEUS_URL = f"{PROMETHEUS_DOMAIN}{PROMETHEUS_PORT}"
+
 HISTORY_FILE =os.getenv("MODEL_PATH", "./data/live_data/history.pkl")
  
 LEARNING_DAYS = int(os.getenv("LEARNING_DAYS", "10"))

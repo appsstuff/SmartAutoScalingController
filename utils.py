@@ -24,7 +24,35 @@ def query_vm(query):
         print(f"⚠️ VM query failed: {e}")
     return np.random.uniform(0.1, 0.9)
 
+
 def fetch_pod_metrics(pod_name="adservice", namespace="default"):
+    now = datetime.now()
+    try:
+        return {
+            "hour_of_day": now.hour,
+            "day_of_week": now.weekday(),
+            "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}'),
+            "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}} offset 5m'),
+            "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container_name="{pod_name}"}}[10m])'),
+            "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container_name="{pod_name}"}}') / (1024 * 1024),
+            "req_rate": query_vm(f'rate(istio_requests_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])'),
+            "latency": query_vm(f'histogram_quantile(0.95, sum(rate(http_request_latencies_bucket{{le="+Inf", namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])) by (le))'),
+            "net_receive_KB": query_vm(f'rate(container_network_receive_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
+            "net_transmit_KB": query_vm(f'rate(container_network_transmit_bytes_total{{namespace="{namespace}", container_name="{pod_name}"}}[1m])') * 1024,
+            "pod_restarts": query_vm(f'kube_pod_container_status_restarts_total{{namespace="{namespace}", container="{pod_name}"}}'),
+            "pod_ready": query_vm(f'kube_pod_container_status_ready{{namespace="{namespace}", container="{pod_name}"}}')
+        }
+    except Exception as e:
+        print(f"⚠️ Failed to fetch real metrics — using fallback: {e}")
+        return {
+            "hour_of_day": datetime.now().hour,
+            "day_of_week": datetime.now().weekday(),
+            "cpu_usage_lag_1": np.random.uniform(0.1, 0.9),
+            "cpu_usage_lag_5": np.random.uniform(0.1, 0.9),
+            "cpu_roll_mean_10": np.random.uniform(0.1, 0.9),
+            "mem_usage": np.random.uniform(200, 300),
+            "req_rate": np.random.uniform(5, 20)
+        }     
     now = datetime.now()
     try:
         return {
@@ -107,26 +135,37 @@ def fetch_historical_data(pod_name, namespace, seq_length=50, days=LEARNING_DAYS
 
     try:
         response = requests.get(f"{PROMETHEUS_URL}/api/v1/query_range", params=params, timeout=5)
-        if response.status_code == 200:
-            result = response.json().get('data', {}).get('result', [])
-            if not result:
-                raise ValueError("No data returned from Prometheus")
+        if response.status_code != 200:
+            print(f"⚠️ Historical query failed with status {response.status_code}")
+            return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
 
-            values = result[0].get('values', [])
-            cpu_values = [float(v[1]) for v in values]
-
-            if len(cpu_values) < seq_length:
-                print(f"Only {len(cpu_values)} samples found — using fallback")
-                return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
-
-            print(f"📊 Loaded {len(cpu_values)} historical entries for {pod_name}")
-            return cpu_values[-seq_length:]
+        if "application/json" not in response.headers.get("Content-Type", ""):
+            print("🪲 Received non-JSON response — using fallback history")
+            return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
+            
+        data = response.json()
+        result = data.get('data', {}).get('result', [])
+        
+        if not result:
+            print("🪲 No historical data found — using synthetic fallback")
+            return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
+        
+        values = result[0].get('values', [])
+        if not values:
+            print("🪲 Empty values array — using fallback")
+            return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
+        
+        cpu_values = [float(v[1]) for v in values if len(v) > 1]
+        if len(cpu_values) < seq_length:
+            print(f"🪲 Not enough historical samples ({len(cpu_values)}) — using fallback")
+            return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
+        
+        print(f"📊 Loaded {len(cpu_values)} historical entries for {pod_name}")
+        return cpu_values[-seq_length:]
 
     except Exception as e:
-        print(f"Historical fetch failed: {e}")
-
-    print("Using simulated history (no Prometheus/VictoriaMetrics data)")
-    return [np.random.uniform(0.1, 0.9) for _ in range(seq_length)]
+        print(f"⚠️ Historical fetch failed: {e}")
+        return HISTORICAL_CPU_USAGE_FALLBACK[:seq_length]
 
 
 def send_to_victoriametrics(metric_name, value, labels):
@@ -217,4 +256,5 @@ def check_vm_connection():
         return response.status_code == 200
     except Exception as e:
         print(f" VM connection failed: {e}")
-        return False
+        return 
+    

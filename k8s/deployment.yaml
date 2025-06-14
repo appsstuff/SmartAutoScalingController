@@ -27,20 +27,20 @@ spec:
           command: ["python", "autoscaler_controller.py"]
           imagePullPolicy: Always
           ports:
-          - containerPort: 9090
+          - containerPort: 8900
             name: metrics
-          - containerPort: 8080
+          - containerPort: 8901
             name: health
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8080
+              port: 8901
             initialDelaySeconds: 10
             periodSeconds: 15
           readinessProbe:
             httpGet:
               path: /ready
-              port: 8080
+              port: 8901
             initialDelaySeconds: 10
             periodSeconds: 10
           envFrom:
@@ -66,8 +66,8 @@ spec:
     
   ports:
     - protocol: TCP
-      port: 9090
-      targetPort: 9090
+      port: 8900
+      targetPort: 8900
       name: metrics
   type: ClusterIP
 ---

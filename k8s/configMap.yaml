@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smart-autoscaler-global-config
+  namespace: monitoring
+data:
+  PROMETHEUS_PORT: "8900"
+  VICTORIA_PORT: "8428"
+  HEALTH_PORT: "8901"
+  STEP_SECONDS: "60"
+  PROMETHEUS_DOMAIN:  "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:"
+  VICTORIA_DOMAIN:  "http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:"
+  CHECK_INTERVAL_SECONDS: "60"
+  RETRAIN_INTERVAL_MINUTES: "1440"  # Daily retraining
+  ENABLE_RETRAINING: "false"  # ← New flag here
+  LEARNING_DAYS: "10"
+  GRAFANA_API_KEY:
+  MODEL_PATH: "../data/models"
+
+  HISTORY_FILE: "../data/live_data/history.pkl"
+ 
