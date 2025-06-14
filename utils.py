@@ -1,14 +1,18 @@
 import os
 from datetime import datetime, timedelta
+from sklearn.metrics import accuracy_score
 import numpy as np
 import requests
 import pandas as pd
 import joblib
+from model_inference import ModelManager
 from config import (
     PROMETHEUS_URL,
+    RETRAIN_THRESHOLD,
     STEP_SECONDS,
     LEARNING_DAYS,
     HISTORY_FILE,
+    LOG_FILE,
     HISTORICAL_CPU_USAGE_FALLBACK
 )
 
@@ -68,16 +72,16 @@ def fetch_pod_metrics(pod_name="adservice", namespace="default"):
         return {
             "hour_of_day": now.hour,
             "day_of_week": now.weekday(),
-            "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container="{pod_name}"}}'),
-            "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", container="{pod_name}"}} offset 5m'),
-            "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", container="{pod_name}"}}[10m])'),
-            "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", container="{pod_name}"}}') / (1024 * 1024),
-            "req_rate": query_vm(f'rate(http_requests_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])'),
+            "cpu_usage_lag_1": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}",pod=~"{pod_name}.*"}}'),
+            "cpu_usage_lag_5": query_vm(f'container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~"{pod_name}.*"}} offset 5m'),
+            "cpu_roll_mean_10": query_vm(f'avg_over_time(container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[10m])'),
+            "mem_usage": query_vm(f'container_memory_usage_bytes{{namespace="{namespace}", pod=~"{pod_name}.*"}}') / (1024 * 1024),
+            "req_rate": query_vm(f'rate(istio_requests_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])'),
             "latency": query_vm(f'histogram_quantile(0.95, sum(rate(http_request_latencies_bucket{{le="+Inf", namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])) by (le))'),
-            "net_receive_KB": query_vm(f'rate(container_network_receive_bytes_total{{namespace="{namespace}", container="{pod_name}"}}[1m])') * 1024,
-            "net_transmit_KB": query_vm(f'rate(container_network_transmit_bytes_total{{namespace="{namespace}", container="{pod_name}"}}[1m])') * 1024,
-            "pod_restarts": query_vm(f'kube_pod_container_status_restarts_total{{namespace="{namespace}", container="{pod_name}"}}'),
-            "pod_ready": query_vm(f'kube_pod_container_status_ready{{namespace="{namespace}", container="{pod_name}"}}')
+            "net_receive_KB": query_vm(f'rate(container_network_receive_bytes_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])') * 1024,
+            "net_transmit_KB": query_vm(f'rate(container_network_transmit_bytes_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}[1m])') * 1024,
+            "pod_restarts": query_vm(f'kube_pod_container_status_restarts_total{{namespace="{namespace}", pod=~"{pod_name}.*"}}'),
+            "pod_ready": query_vm(f'kube_pod_container_status_ready{{namespace="{namespace}", pod=~"{pod_name}.*"}}')
         }
     except Exception as e:
         print(f"⚠️ Failed to fetch live metrics for {pod_name}: {e}")
@@ -154,7 +158,7 @@ def save_history(history_dict):
 
 
 def record_live_data(pod_name, input_row, decision):
-    log_dir = "./data/live_data"
+    log_dir = LOG_FILE
     os.makedirs(log_dir, exist_ok=True)
     timestamp = datetime.now().isoformat()
 
@@ -219,39 +223,28 @@ def fetch_historical_data(pod_name, namespace="default", seq_length=50, days=LEA
     
 def send_to_victoriametrics(metric_name, value, labels):
     """
-    Send custom metric to VictoriaMetrics using JSON line forma
+    Send custom metric to VictoriaMetrics using Prometheus text format.
+    Returns True if success
     """
+    timestamp = int(datetime.now().timestamp() * 1000)  # milliseconds
+    label_str = ",".join([f'{k}="{v}"' for k, v in labels.items()])
+    line = f"{metric_name}{{{label_str}}} {value} {timestamp}"
+
+    url = f"{PROMETHEUS_URL}/api/v1/import/prometheus"
+    headers = {"Content-Type": "text/plain","charset": "utf-8"}
+
     try:
-        # Timestamp in milliseconds
-        now = datetime.now()
-        timestamp = int(now.timestamp() * 1000)  # milliseconds
-
-        # Format labels properly
-        # Validate labels
-        label_str = ",".join([f'{k}="{v}"' for k, v in labels.items()])
-        line = f"{metric_name}{{{label_str}}} {value} {timestamp}"
-
-        # Use correct VM import endpoint
-        url = f"{PROMETHEUS_URL}/api/v1/import"
-        
-        headers = {
-            "Content-Type": "text/plain",
-            "User-Agent": "SmartAutoScaler/1.0"
-        }
-        
         response = requests.post(url, data=line, headers=headers, timeout=5)
-
         if response.status_code == 204:
-            print(f"🔄 [VM] Sent: {line}")
+            print(f"✅ Sent to VictoriaMetrics: {line}")
             return True
         else:
-            print(f"⚠️ [VM] Unexpected status: {response.status_code}, expected 204")
-            print(f"🪲 Response: {response.text}")
+            print(f"⚠️ Failed to write to VM: {response.status_code}")
+            print(f"🪲 Response: {response.text[:200]}")
             return False
     except Exception as e:
-        print(f"🚫 [VM] Could not reach VictoriaMetrics: {e}")
-        return False  
-
+        print(f"🚫 Could not reach VictoriaMetrics: {e}")
+        return False
 
 def validate_service_config(svc):
     required_keys = ["pod_name", "feature_names", "seq_length", "min_replicas", "max_replicas", "scaling_step"]
@@ -317,4 +310,48 @@ def check_vm_connection():
     except Exception as e:
         print(f" VM connection failed: {e}")
         return 
+
+def load_training_data(pod_name, namespace="default"):
+    """
+    Load historical decisions and metrics for retraining
+    Returns X_train, y_train
+    """
+    log_dir = LOG_FILE
+    log_path = os.path.join(log_dir, "decisions.csv")
+
+    if not os.path.exists(log_path):
+        print(f"🪲 No training logs found for {pod_name} — skipping retraining")
+        return None, None
+
+    df = pd.read_csv(log_path)
+    df = df[df['service'] == pod_name]
+
+    if len(df) < RETRAIN_THRESHOLD:
+        print(f"🪲 Not enough data for {pod_name} — need at least {RETRAIN_THRESHOLD}")
+        return None, None
+
+    # Map labels to numeric values
+    X_train = df[["hour_of_day", "day_of_week", "cpu_usage_lag_1", "cpu_usage_lag_5", "cpu_roll_mean_10", "mem_usage", "req_rate"]].values
+    y_train = df["action"].map({"scale_down": 0, "no_change": 1, "scale_up": 2}).values
+
+    return X_train, y_train
     
+def validate_model_performance(pod_name, namespace="default"):
+    """
+    Validate current model against recent decisions.
+    Returns: float accuracy score
+    """
+    try:
+        X_test, y_test = load_training_data(pod_name, namespace)
+        if X_test is None or y_test is None:
+            return 0.0
+
+        manager = ModelManager(pod_name)
+        predictions = [manager.predict(x) for x in X_test]
+        predicted_labels = [{"scale_down": 0, "no_change": 1, "scale_up": 2}[p] for p in predictions]
+        acc = accuracy_score(y_test, predicted_labels)
+        print(f"🧪 Current model accuracy for {pod_name}: {acc:.2f}")
+        return acc
+    except Exception as e:
+        print(f"🪲 Failed to validate {pod_name}: {e}")
+        return 0.0

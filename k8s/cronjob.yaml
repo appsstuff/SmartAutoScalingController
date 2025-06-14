@@ -10,7 +10,7 @@ metadata:
   name: smart-autoscaler-job
   namespace: monitoring
 spec:
-  schedule: "*/9 * * * *"
+  schedule: "*/* 24 * * *"
   jobTemplate:
     spec:
       template:
@@ -20,6 +20,7 @@ spec:
             - name: autoscaler
               image: gcr.io/cairo-university-457016/autoscaling-controller:latest
               imagePullPolicy: IfNotPresent
+              command: ["python", "retrain_models.py"]
               envFrom:
                 - configMapRef:
                     name: smart-autoscaler-global-config

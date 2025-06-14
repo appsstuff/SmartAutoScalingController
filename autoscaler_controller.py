@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from pod_config import AUTO_SCALE_SERVICES
 from model_inference import predict_scaling_action
-from k8s_scaler import apply_k8s_scaling
+from k8s_scaler import K8sScaler
 from retrain_models import retrain_all_models
 from utils import (
     fetch_pod_metrics,
@@ -17,18 +17,22 @@ from utils import (
     send_to_victoriametrics,
     create_sequence,
     validate_service_config,
-    fetch_historical_data, 
+    RETRAIN_THRESHOLD, 
     load_history,
     save_history,
     record_live_data,
     metrics_history,
+    validate_model_performance,
     check_vm_connection
 )
 from metrics_server import start_metrics_server, set_metric_values
 
 # Load history at startup
 metrics_history = load_history()
-print("🧠 Running with scikit-learn v1.5.1, NumPy v1.23.5")
+print(".................. Start Smat Auto Scaller ...............")
+print(".................... Muhammad Yassein ....................")
+
+scaler = K8sScaler()
 
 # Start metrics server early
 start_metrics_server(port=8900)
@@ -52,51 +56,47 @@ try:
             print(f"{progress_bar}")
 
             # Step 1: Fetch live metrics
-            print("\n🧩 Step 1: Fetch live metrics : {pod_name}")
-
+            print(f"\n🧩 Step 1: Fetch live metrics : {pod_name}")
             raw_metrics = fetch_pod_metrics(pod_name, namespace)
             if not raw_metrics:
                 print(f"🪲 No valid metrics fetched for {pod_name}")
                 continue
 
             # Step 2: Build feature vector
-            print("\n🧩 Step 2: Build feature vector : {pod_name}")
+            print(f"\n🧩 Step 2: Build feature vector : {pod_name}")
             input_row = build_feature_vector(raw_metrics, feature_names)
             if len(input_row) == 0:
                 print(f"🪲 No features built for {pod_name}")
                 continue
 
+            # Step 3: Manage history
             key = f"{namespace}/{pod_name}"
-
-            # Initialize history if not exists
             if key not in metrics_history:
                 metrics_history[key] = []
-
             # Append latest data
             metrics_history[key].append(input_row)
-
             # Limit history size
             max_history = seq_length + 10
             if len(metrics_history[key]) > max_history:
                 metrics_history[key] = metrics_history[key][-max_history:]
 
-            # Step 3: Create sequence for LSTM
+            # Step 4: Create sequence for LSTM
             seq_input = create_sequence(np.array(metrics_history[key]), seq_length)
             if len(seq_input) == 0:
                 print(f"⏳ Waiting — collecting initial sequence for {pod_name}")
                 continue
 
-            # Step 4: Make prediction
-            print("\n🧩 Step 4: Make prediction : {pod_name}")
+            # Step 5: Make prediction
+            print(f"\n🧩 Step 5: Make prediction : {pod_name}")
             decision = predict_scaling_action(input_row, seq_input, service_name=pod_name)
             print(f"🧠 Decision for {pod_name}: {decision}")
 
-            # Step 5: Log to VictoriaMetrics
+            # Step 6: Log to VictoriaMetrics
             decision_value = {"scale_down": 0, "no_change": 1, "scale_up": 2}.get(decision, 1)
-            
             set_metric_values(pod_name, raw_metrics,decision_value)
-         
             if check_vm_connection():
+                print(f"\n🧩 Step 6: Log to VictoriaMetrics: {pod_name}")
+
                 send_to_victoriametrics("autoscaler_decision", decision_value, {"service": pod_name})
                 send_to_victoriametrics("autoscaler_cpu_usage", raw_metrics["cpu_usage_lag_1"], {"service": pod_name})
                 send_to_victoriametrics("autoscaler_mem_usage", raw_metrics["mem_usage"], {"service": pod_name})
@@ -105,10 +105,33 @@ try:
             else:
                print("⚠️ VictoriaMetrics unreachable — skipping logs")
                
-             # Step 6: Apply scaling
-            print("\n🧩 Step 6: Apply scaling : {pod_name}")
-            apply_k8s_scaling(pod_name, namespace, decision)
+             # Step 7: Apply scaling
+            print(f"\n🧩 Step 7: Apply scaling : {pod_name}")
+            scaling_success = scaler.scale(pod_name, namespace, decision)
+            if not scaling_success:
+                print(f"🚫 Failed to scale {pod_name} — will retry next round")
+            else:
+                print(f"✅ Replicas updated for {pod_name}")    
+                
+            # Step 8: Record live data for future retraining
+            record_live_data(pod_name, input_row, decision)
 
+            # Step 9: Retrain models if needed
+            print(f"\n🧩 Step 9: Retrain models if needed: {pod_name}")
+
+            if len(metrics_history[key]) >= RETRAIN_THRESHOLD:
+                print(f"🔄 Retraining models for {pod_name}")
+                retrain_all_models()  # Triggers retraining for all services
+
+                # Step 10: Validate performance after retraining
+                print(f"🧪 Validating model performance for {pod_name}")
+                old_accuracy = validate_model_performance(pod_name)
+                if old_accuracy < 0.7:
+                    print(f"📈 Model accuracy improved for {pod_name}")
+                else:
+                    print(f"📉 Model already performing well → skipping retraining")
+
+            
         # Save history periodically
         save_history(metrics_history)
         time.sleep(60)

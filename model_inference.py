@@ -9,7 +9,7 @@ from config import MODELS_PATH
 class ModelManager:
     def __init__(self, service_name):
         self.service_name = service_name
-        self.model_path = os.path.join(MODELS_PATH, service_name)
+        self.model_path = MODELS_PATH
         self.scaler = None
         self.gpr = None
         self.xgb = None

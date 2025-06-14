@@ -85,7 +85,7 @@ spec:
   endpoints:
     - port: metrics
       path: /metrics
-      interval: 30s
+      interval: 60s
   selector:
     matchLabels:
       app: smart-autoscaler
@@ -116,21 +116,23 @@ spec:
       - monitoring
 
 ---
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: autoscaler-cluster-role
-  namespace: monitoring
 rules:
-  - apiGroups: ["", "apps"]
-    resources: ["deployments", "replicasets", "pods"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale", "replicasets"]
     verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: autoscaler-role-binding
-  namespace: monitoring
 subjects:
   - kind: ServiceAccount
     name: autoscaler-sa
@@ -139,9 +141,23 @@ roleRef:
   kind: ClusterRole
   name: autoscaler-cluster-role
   apiGroup: rbac.authorization.k8s.io
+
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: autoscaler-sa
   namespace: monitoring
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: autoscaler-data-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard

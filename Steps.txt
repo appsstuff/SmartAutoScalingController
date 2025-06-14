@@ -2,7 +2,6 @@
 
 gcloud services enable containerregistry.googleapis.com
 gcloud services enable cloudbuild.googleapis.com
-#build in google direclly
 gcloud builds submit --tag gcr.io/cairo-university-457016/autoscaling-controller:latest .
 
 

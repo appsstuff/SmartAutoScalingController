@@ -1,38 +1,26 @@
-FROM python:3.10-slim
+FROM python:3.10-slim as builder
 
 WORKDIR /app
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential libopenblas-dev libomp-dev && \
+    pip install --upgrade pip && \
+    pip install intel-openmp && \
+    pip install --prefix=/install --no-cache-dir -r requirements.txt
 
-RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt  && \
-    rm -rf /var/lib/apt/lists/* && \
-    rm -rf /root/.cache/pip
+# Final stage
+FROM python:3.10-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libopenblas-dev \
-    libomp-dev \
-    wget \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY . .
+RUN mkdir -p /live_data
+RUN chmod -R 777 /live_data
 
-# Set environment variables for performance
+EXPOSE 8900
 ENV TF_ENABLE_ONEDNN_OPTS=1 \
     TF_CPP_MIN_LOG_LEVEL=2 \
     PYTHONUNBUFFERED=1
 
-# Upgrade pip and install optimized TensorFlow
-RUN pip install --upgrade pip && \
-    pip install intel-extension-for-tensorflow
-    
-# RUN pip install --no-cache-dir -r requirements.txt && \
-#     rm -rf /var/lib/apt/lists/* && \
-#     rm -rf /root/.cache/pip
-#     rm -rf /root/.cache/pip
-
-
-RUN mkdir -p /data/live_data
-COPY . .
-
+# Start Prometheus metrics server + main loop
 CMD ["python", "autoscaler_controller.py"]

@@ -1,11 +1,13 @@
+
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: smart-autoscaler-adservice
+  name: smart-autoscaler-keda-adservice
   namespace: default
 spec:
   scaleTargetRef:
     name: adservice
+    kind: Deployment
   minReplicaCount: 2
   maxReplicaCount: 10
   triggers:
@@ -15,3 +17,205 @@ spec:
         metricName: autoscaler_decision
         threshold: "1.5"
         query: 'autoscaler_decision{service="adservice"}'
+--- 
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-checkoutservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: checkoutservice
+    kind: Deployment
+  minReplicaCount: 3
+  maxReplicaCount: 10
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="checkoutservice"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-cartservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: cartservice
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 8
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="cartservice"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-currencyservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: currencyservice
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 8
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="currencyservice"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-emailservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: emailservice
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 6
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="emailservice"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-frontend
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: frontend
+    kind: Deployment
+  minReplicaCount: 3
+  maxReplicaCount: 10
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="frontend"}'
+      
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-paymentservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: paymentservice
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 8
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="paymentservice"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-productcatalogservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: productcatalogservice
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="productcatalogservice"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-recommendationservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: recommendationservice
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 8
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="recommendationservice"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-redis-cart
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: redis-cart
+    kind: Deployment
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="redis-cart"}'
+---
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: smart-autoscaler-keda-shippingservice
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: shippingservice
+    kind: Deployment
+  minReplicaCount: 2
+  maxReplicaCount: 8
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        metricName: autoscaler_decision
+        threshold: "1.5"
+        query: 'autoscaler_decision{service="shippingservice"}'
+---
