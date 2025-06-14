@@ -29,6 +29,7 @@ RUN pip install --upgrade pip && \
 # RUN pip install --no-cache-dir -r requirements.txt && \
 #     rm -rf /var/lib/apt/lists/* && \
 #     rm -rf /root/.cache/pip
+#     rm -rf /root/.cache/pip
 
 
 RUN mkdir -p /data/live_data
