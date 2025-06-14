@@ -1,9 +1,11 @@
 import os
 import numpy as np
-from prometheus_client import start_http_server, Gauge
+from prometheus_client import Gauge
 
 PROMETHEUS_PORT = int(os.getenv("PROMETHEUS_PORT","8428"))
 STEP_SECONDS = int(os.getenv("STEP_SECONDS", "60"))
+RETRAIN_THRESHOLD = 500  # Adjust based on your data volume and retraining frequency needs
+RETRAIN_COOLDOWN = 3600  # seconds, e.g., 1 hour cooldown between retrains per pod
 
 PROMETHEUS_DOMAIN = os.getenv("PROMETHEUS_DOMAIN", "http://34.73.82.105:")
 PROMETHEUS_URL = f"{PROMETHEUS_DOMAIN}{PROMETHEUS_PORT}"

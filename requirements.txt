@@ -3,12 +3,13 @@ pandas>=1.5
 numpy==1.23.5
 scikit-learn>=1.3,<1.4
 
-xgboost==1.7.6
+xgboost==1.7.6  # Works with Python 3.9–3.10
 
-# TensorFlow (for LSTM model)
-tensorflow==2.15.0  # Works natively on macOS M1
+# TensorFlow (macOS M1/M2)
+tensorflow-macos==2.15.0
+tensorflow-metal==1.1.0  # Optional but recommended for GPU acceleration
 
-# Kubernetes client for autoscaler logic
+# Kubernetes client
 kubernetes>=26.1
 
 # Visualization and monitoring

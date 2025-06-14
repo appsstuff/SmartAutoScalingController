@@ -5,7 +5,6 @@ import xgboost as xgb
 import joblib
 from sklearn.preprocessing import StandardScaler
 
-
 from config import (
 MODELS_PATH
 )
@@ -20,112 +19,123 @@ print("Using optimized TF:", tf.__version__)
 class ModelManager:
     def __init__(self, service_name):
         self.service_name = service_name
-        self.model_path = os.getenv("", MODELS_PATH)
+        self.model_path = os.getenv("MODELS_PATH", MODELS_PATH)
         self.scaler = None
         self.gpr = None
         self.xgb = None
         self.lstm = None
         self._load_all_models()
-
+        
+        
     def _load_all_models(self):
-            try:
-                print(f"🧠 Loading models for {self.service_name}")
-                
-                # Load Scaler
-                scaler_path = os.path.join(self.model_path, "scaler_model.pkl")
-                if os.path.exists(scaler_path):
-                    self.scaler = joblib.load(scaler_path)
-                else:
-                    raise FileNotFoundError(f"Scaler not found at {scaler_path}")
+        try:
+            # Load Scaler
+            scaler_path = os.path.join(self.model_path, "scaler_model.pkl")
+            if os.path.exists(scaler_path):
+                self.scaler = joblib.load(scaler_path)
+            else:
+                raise FileNotFoundError("Scaler not found")
 
-                # Load GPR
-                gpr_path = os.path.join(self.model_path, "gpr_model.pkl")
-                if os.path.exists(gpr_path):
-                    self.gpr = joblib.load(gpr_path)
-                else:
-                    raise FileNotFoundError(f"GPR model not found at {gpr_path}")
+            # Load GPR
+            gpr_path = os.path.join(self.model_path, "gpr_model.pkl")
+            if os.path.exists(gpr_path):
+                self.gpr = joblib.load(gpr_path)
+            else:
+                raise FileNotFoundError("GPR model not found")
 
-                # Load XGBoost
-                xgb_path = os.path.join(self.model_path, "xgb_model.json")
-                if os.path.exists(xgb_path):
-                    self.xgb = xgb.XGBClassifier()
-                    self.xgb.load_model(xgb_path)
-                else:
-                    raise FileNotFoundError(f"XGBoost model not found at {xgb_path}")
+            # Load XGBoost
+            xgb_path = os.path.join(self.model_path, "xgb_model.json")
+            if os.path.exists(xgb_path):
+                self.xgb = xgb.XGBClassifier()
+                self.xgb.load_model(xgb_path)
+            else:
+                raise FileNotFoundError("XGBoost model not found")
 
-                # Load LSTM
-                lstm_path = os.path.join(self.model_path, "lstm_model.h5")
-                if os.path.exists(lstm_path):
-                    self.lstm = tf.keras.models.load_model(lstm_path)
-                else:
-                    raise FileNotFoundError(f"LSTM model not found at {lstm_path}")
+            # Load LSTM
+            lstm_path = os.path.join(self.model_path, "lstm_model.h5")
+            if os.path.exists(lstm_path):
+                self.lstm = tf.keras.models.load_model(lstm_path)
+            else:
+                raise FileNotFoundError("LSTM model not found")
 
-                print(f"✅ Models loaded for {self.service_name}")
+            print(f"✅ Models loaded for {self.service_name}")
 
-            except Exception as e:
-                print(f"⚠️ Failed to load hybrid model: {e}")
-                self.gpr = self.xgb = self.lstm = None
-                self.scaler = StandardScaler()  # Use fallback scaler if odel.h5"))
-            
-            except Exception as e:
-                print(f" Failed to load models for {self.service_name}: {e}")
-                self.gpr = self.xgb = self.lstm = None
-
+        except Exception as e:
+            print(f"[{self.service_name}] Failed to load models: {e}")
+            self.scaler = StandardScaler()
+            self.gpr = None
+            self.xgb = None
+            self.lstm = None
+        
+        
     def predict(self, input_row, seq_input=None):
-            """
-            Predict scaling action using hybrid voting system.
-            Returns: 'scale_down', 'no_change', or 'scale_up'
-            """
-            if not all([self.scaler, self.gpr, self.xgb, self.lstm]):
-                print(f"[{self.service_name}] Hybrid model failed — falling back to threshold prediction")
-                return self.fallback_predict(input_row)
+        """
+        Predict scaling action using hybrid voting system.
+        Returns: 'scale_down', 'no_change', or 'scale_up'
+        """
+        if not all([self.scaler, self.gpr, self.xgb, self.lstm]):
+            print(f"[{self.service_name}] Hybrid model failed — falling back to threshold prediction")
+            return self.fallback_predict(input_row)
 
-            try:
-                X_input = np.array([input_row])
-                X_scaled = self.scaler.transform(X_input)
+        try:
+            X_input = np.array([input_row])
+            X_scaled = self.scaler.transform(X_input)
 
-                # GPR Prediction
-                gpr_pred, std = self.gpr.predict(X_scaled, return_std=True)
-                threshold_up = np.percentile(gpr_pred + std, 90)
-                threshold_down = np.percentile(gpr_pred - std, 10)
-                gpr_class = 0 if gpr_pred > threshold_up else (2 if gpr_pred < threshold_down else 1)
+            # GPR Prediction
+            gpr_pred, std = self.gpr.predict(X_scaled, return_std=True)
+            gpr_score = gpr_pred[0] if isinstance(gpr_pred, np.ndarray) else gpr_pred
+            threshold_up = gpr_score + std
+            threshold_down = gpr_score - std
 
-                # XGBoost Prediction
-                xgb_class = int(self.xgb.predict(X_scaled)[0])
+            gpr_class = 0 if gpr_score < threshold_down else (2 if gpr_score > threshold_up else 1)
 
-                # LSTM Prediction
-                if seq_input is not None:
-                    lstm_input = X_scaled.reshape((1, -1, 1))
-                    lstm_score = self.lstm.predict(lstm_input, verbose=0)[0][0]
-                    lstm_class = 0 if lstm_score > threshold_up else (2 if lstm_score < threshold_down else 1)
-                else:
-                    lstm_class = 1  # Default to no change
+            # XGBoost Prediction
+            xgb_pred = self.xgb.predict(X_scaled)[0]
+            xgb_class = int(xgb_pred)
 
-                # Fuse decisions
-                votes = [gpr_class, xgb_class, lstm_class]
-                vote_counts = {v: votes.count(v) for v in set(votes)}
-                majority = max(vote_counts, key=vote_counts.get)
-                target_names = ['scale_down', 'no_change', 'scale_up']
-                decision = target_names[majority]
+            # LSTM Prediction
+            if seq_input is not None and len(seq_input) >= self.seq_length:
+                lstm_input = seq_input.reshape((1, -1, 1))
+                lstm_score = self.lstm.predict(lstm_input, verbose=0)[0][0]
+                lstm_class = 0 if lstm_score < 0.3 else (2 if lstm_score > 0.7 else 1)
+            else:
+                lstm_class = 1  # Default to no change
 
-                print(f"[{self.service_name}] Hybrid decision used → {decision}")
-                return decision
+            # Fuse decisions
+            votes = [gpr_class, xgb_class, lstm_class]
+            vote_counts = {v: votes.count(v) for v in set(votes)}
+            majority_votes = max(vote_counts.values())
+            candidates = [k for k, v in vote_counts.items() if v == majority_votes]
 
-            except Exception as e:
-                print(f"[{self.service_name}] Hybrid prediction error: {e}")
-                return self.fallback_predict(input_row)
+            # Tie-breaker: use first valid vote (prioritize GPR > XGB > LSTM)
+            for vote in [gpr_class, xgb_class, lstm_class]:
+                if vote in candidates:
+                    decision = {0: "scale_down", 1: "no_change", 2: "scale_up"}[vote]
+                    print(f"[{self.service_name}] Hybrid decision used → {decision}")
+                    return decision
 
+        except Exception as e:
+            print(f"[{self.service_name}] Hybrid prediction error: {e}")
+            return self.fallback_predict(input_row)
+        
+  
     def fallback_predict(self, features):
         """
-        Fallback strategy based on simple thresholds
+        Fallback strategy based on raw CPU usage
         """
-        cpu_usage = features[2]  # Assuming index 2 is cpu_usage_lag_1
-        if cpu_usage > 0.8:
-            return 'scale_up'
-        elif cpu_usage < 0.2:
-            return 'scale_down'
-        else:
+        try:
+            cpu_usage = float(features[2])  # Ensure numeric value
+            if cpu_usage > 0.8:
+                return 'scale_up'
+            elif cpu_usage < 0.2:
+                return 'scale_down'
+            else:
+                return 'no_change'
+        except Exception as e:
+            print(f"[Fallback] Invalid feature vector: {e}")
             return 'no_change'
+        
+        
     @staticmethod
     def classify_gpr(pred, std):
         threshold_up = pred + std * 0.5
@@ -145,35 +155,49 @@ class ModelManager:
 
 
 # ======== Fallback Strategy (No Models Found) ========
-def fallback_predict(features):
-    """
-    Fallback prediction based on raw CPU usage.
-    Use this if models are not available.
-    """
-    cpu_usage = features[2]  # cpu_usage_lag_1
-    if cpu_usage > 0.8:
-        return 'scale_up'
-    elif cpu_usage < 0.2:
-        return 'scale_down'
-    return 'no_change'
-
 
 # ======== Prediction Fusion Logic ========
-def fuse_predictions(gpr_class, xgb_class, lstm_class):
+
+def fuse_predictions(self, gpr_class: int, xgb_class: int, lstm_class: int, input_row) -> str:
+    """
+    Fuse predictions from GPR, XGBoost, and LSTM using majority vote.
+    Tie-breaker uses model priority: GPR > XGB > LSTM
+    """
     decision_map = {0: "scale_down", 1: "no_change", 2: "scale_up"}
     votes = [gpr_class, xgb_class, lstm_class]
-    vote_counts = {i: votes.count(i) for i in set(votes)}
-    majority = [k for k, v in vote_counts.items() if v == max(vote_counts.values())]
+    
+    # Ensure votes are valid integers
+    valid_votes = [v for v in votes if isinstance(v, int)]
+    
+    if not valid_votes:
+        print("⚠️ No valid votes — falling back to threshold")
+        return self.fallback_predict(input_row)
+    
+    vote_counts = {v: valid_votes.count(v) for v in set(valid_votes)}
+    max_votes = max(vote_counts.values())
+    candidates = [k for k, v in vote_counts.items() if v == max_votes]
 
-    if len(majority) == 1:
-        return decision_map[majority[0]]
-    else:
-        # Tie-breaker by model priority
-        for vote in [gpr_class, xgb_class, lstm_class]:
-            if vote in majority:
-                return decision_map[vote]
-            
-def predict_scaling_action(input_row, seq_input, service_name=None):
+    # Tie-breaker: use first valid vote (or prioritize certain models)
+    for vote in votes:
+        if vote in candidates:
+            return decision_map.get(vote, "no_change")
+
+    return "no_change"
+
+def predict_scaling_action(input_row, seq_input=None, service_name=None):
+    """
+    Predict scaling action using hybrid model or fallback strategy
+    """
+    pod_name = service_name or os.getenv("TARGET_DEPLOYMENT", "adservice")
+    try:
+        manager = ModelManager(pod_name)
+        decision = manager.predict(input_row, seq_input)
+        print(f"[{pod_name}] Hybrid decision used")
+        return decision
+    except Exception as e:
+        print(f"[{pod_name}] Failed to load hybrid model: {e}")
+        return fallback_predict(input_row)
+
     """
     Predict scaling action using hybrid model or fallback strategy.
     

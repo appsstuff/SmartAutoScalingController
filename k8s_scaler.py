@@ -47,7 +47,7 @@ class K8sScaler:
     def _patch_replicas(self, name, namespace, replicas):
         body = {"spec": {"replicas": replicas}}
         self.apps_v1.patch_namespaced_deployment_scale(name=name, namespace=namespace, body=body)
-        print(f"[SUCCESS] Updated replicas to {replicas} for {name} in {namespace}")
+        print(f"✅✅✅[SUCCESS] Updated replicas to {replicas} for {name} in {namespace}")
 
 # ===== Standalone Function (optional backward compatibility) =====
 def apply_k8s_scaling(pod_name, namespace, decision):
