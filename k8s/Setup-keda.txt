@@ -1,0 +1,42 @@
+
+
+helm upgrade --install keda kedacore/keda \
+  --namespace keda \
+  --set metrics.enabled=true \
+  --set prometheus.metricServer.enabled=true
+
+---
+🔧 Automate with kubectl patch (for scripting)
+If you want to patch existing Deployments automatically:
+
+bash
+Copy
+Edit
+for d in $(kubectl -n default get deploy -o name); do
+  kubectl -n default patch $d --type='json' -p='[
+    {
+      "op": "add",
+      "path": "/spec/template/metadata/labels/metrics-enabled",
+      "value": "true"
+    },
+    {
+      "op": "add",
+      "path": "/spec/template/metadata/labels/keda-scaling",
+      "value": "true"
+    }
+  ]'
+done
+----
+for s in $(kubectl get scaledobjects.keda.sh -n default -o name); do
+  kubectl -n default label $s metrics-enabled=true keda-scaling=true --overwrite
+done
+--
+
+kubectl get all -n keda
+kubectl top pods -A --sort-by=cpu
+
+  --
+
+  kubectl exec -n keda deploy/keda-operator -c keda-operator -- curl -s "http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428/api/v1/query?query=autoscaler_decision{service=\"adservice\"}"
+
+

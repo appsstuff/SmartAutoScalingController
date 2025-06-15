@@ -1,4 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: keda-operator-servicemonitor
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keda-operator
+  namespaceSelector:
+    matchNames:
+      - keda
+  endpoints:
+    - port: metricsservice   # ✅ correct port name
+      path: /metrics
+      interval: 15s
 
+---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -8,14 +27,15 @@ spec:
   scaleTargetRef:
     name: adservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 10
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="adservice"}'
 --- 
 
@@ -28,14 +48,15 @@ spec:
   scaleTargetRef:
     name: checkoutservice
     kind: Deployment
-  minReplicaCount: 3
-  maxReplicaCount: 10
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="checkoutservice"}'
 ---
 
@@ -48,14 +69,15 @@ spec:
   scaleTargetRef:
     name: cartservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 8
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="cartservice"}'
 ---
 
@@ -68,14 +90,15 @@ spec:
   scaleTargetRef:
     name: currencyservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 8
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="currencyservice"}'
 ---
 
@@ -88,14 +111,15 @@ spec:
   scaleTargetRef:
     name: emailservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 6
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="emailservice"}'
 ---
 
@@ -108,14 +132,15 @@ spec:
   scaleTargetRef:
     name: frontend
     kind: Deployment
-  minReplicaCount: 3
-  maxReplicaCount: 10
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="frontend"}'
       
 ---
@@ -129,14 +154,15 @@ spec:
   scaleTargetRef:
     name: paymentservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 8
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="paymentservice"}'
 ---
 
@@ -149,14 +175,15 @@ spec:
   scaleTargetRef:
     name: productcatalogservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 10
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="productcatalogservice"}'
 ---
 
@@ -169,14 +196,15 @@ spec:
   scaleTargetRef:
     name: recommendationservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 8
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="recommendationservice"}'
 ---
 
@@ -190,13 +218,14 @@ spec:
     name: redis-cart
     kind: Deployment
   minReplicaCount: 1
-  maxReplicaCount: 3
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="redis-cart"}'
 ---
 
@@ -209,13 +238,14 @@ spec:
   scaleTargetRef:
     name: shippingservice
     kind: Deployment
-  minReplicaCount: 2
-  maxReplicaCount: 8
+  minReplicaCount: 1
+  maxReplicaCount: 4
   triggers:
     - type: prometheus
       metadata:
-        serverAddress: http://victoriametrics.monitoring.svc.cluster.local:8428
+        serverAddress: http://vm-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
         metricName: autoscaler_decision
-        threshold: "1.5"
+        threshold: "0.8"
+        activationThreshold: "0.2" 
         query: 'autoscaler_decision{service="shippingservice"}'
 ---

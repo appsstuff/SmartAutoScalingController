@@ -11,6 +11,9 @@ kind: ScaledObject
 metadata:
   name: smart-autoscaler-keda-{{ pod_name }}
   namespace: default
+  Labels:
+    keda-scaling="true"
+    metrics-enabled="true"  
 spec:
   scaleTargetRef:
     name: {{ pod_name }}

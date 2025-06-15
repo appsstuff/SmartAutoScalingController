@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import numpy as np
 from pod_config import AUTO_SCALE_SERVICES
 from model_inference import predict_scaling_action
-from k8s_scaler import K8sScaler
 from retrain_models import retrain_all_models
 from utils import (
     fetch_pod_metrics,
@@ -31,8 +30,6 @@ from metrics_server import start_metrics_server, set_metric_values
 metrics_history = load_history()
 print(".................. Start Smat Auto Scaller ...............")
 print(".................... Muhammad Yassein ....................")
-
-scaler = K8sScaler()
 
 # Start metrics server early
 start_metrics_server(port=8900)
@@ -105,15 +102,17 @@ try:
             else:
                print("⚠️ VictoriaMetrics unreachable — skipping logs")
                
-             # Step 7: Apply scaling
-            print(f"\n🧩 Step 7: Apply scaling : {pod_name}")
-            scaling_success = scaler.scale(pod_name, namespace, decision)
-            if not scaling_success:
-                print(f"🚫 Failed to scale {pod_name} — will retry next round")
-            else:
-                print(f"✅ Replicas updated for {pod_name}")    
+               # Use KEDA instedad
+            #  # Step 7: Apply scaling 
+            print(f"\n🧩 Step 7: Apply scaling Using KEDA .....")
+            # scaling_success = scaler.scale(pod_name, namespace, decision)
+            # if not scaling_success:
+            #     print(f"🚫 Failed to scale {pod_name} — will retry next round")
+            # else:
+            #     print(f"✅ Replicas updated for {pod_name}")    
                 
             # Step 8: Record live data for future retraining
+            
             record_live_data(pod_name, input_row, decision)
 
             # Step 9: Retrain models if needed
