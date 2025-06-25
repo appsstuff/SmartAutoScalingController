@@ -1,1 +1,0 @@
-{"status":"error","errorType":"422","error":"error when executing query=\"autoscaler_decisionservice=\\\"adservice\\\"\" for (time=1749974098008, step=300000): identExpr: unexpected token \"=\"; want \"(\", \"{\", \"[\", \")\", \",\" or \"@\"; unparsed data: \"=\\\"adservice\\\"\""}
